@@ -1,0 +1,56 @@
+services:
+  uc1_stub:
+    build:
+      context: ..
+      dockerfile: stubs/uc1_stub/Dockerfile
+    env_file: ../.env
+    environment:
+      UC_ID: uc1
+      TEST_CAMERA_ID: "00000000-0000-0000-0000-000000000001"
+      ALERT_INTERVAL_SECONDS: "10"
+    depends_on:
+      redis:    { condition: service_healthy }
+      postgres: { condition: service_healthy }
+    restart: unless-stopped
+
+  uc2_stub:
+    build:
+      context: ..
+      dockerfile: stubs/uc2_stub/Dockerfile
+    env_file: ../.env
+    environment:
+      UC_ID: uc2
+      TEST_CAMERA_ID: "00000000-0000-0000-0000-000000000002"
+      ALERT_INTERVAL_SECONDS: "15"
+    depends_on:
+      redis:    { condition: service_healthy }
+      postgres: { condition: service_healthy }
+    restart: unless-stopped
+
+  uc3_stub:
+    build:
+      context: ..
+      dockerfile: stubs/uc3_stub/Dockerfile
+    env_file: ../.env
+    environment:
+      UC_ID: uc3
+      TEST_CAMERA_ID: "00000000-0000-0000-0000-000000000003"
+      ALERT_INTERVAL_SECONDS: "12"
+    depends_on:
+      redis:    { condition: service_healthy }
+      postgres: { condition: service_healthy }
+    restart: unless-stopped
+
+  uc4_stub:
+    build:
+      context: ..
+      dockerfile: stubs/uc4_stub/Dockerfile
+    env_file: ../.env
+    environment:
+      UC_ID: uc4
+      TEST_CAMERA_ID: "00000000-0000-0000-0000-000000000004"
+      ALERT_INTERVAL_SECONDS: "8"
+    depends_on:
+      redis:    { condition: service_healthy }
+      postgres: { condition: service_healthy }
+    restart: unless-stopped

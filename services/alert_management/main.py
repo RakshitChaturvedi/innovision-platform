@@ -2,11 +2,13 @@
 
 import asyncio, logging, os, sys, uuid
 import redis.asyncio as aioredis
+import sqlalchemy as sa
 
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy import text
 
 sys.path.insert(0, "/app")
@@ -120,9 +122,9 @@ async def process_alert(msg_id:str, data:dict, redis_client:aioredis.Redis, sess
     try:
         async with session_factory() as session:
             async with session.begin():
-                await session.execute(text("""
+                stmt = text("""
                     INSERT INTO alerts (
-                        id, alert_id, camera_id, source_uc, alert_type, severity, title, 
+                        id, alert_id, camera_id, source_uc, alert_type, severity, title,
                         description, source_event_id, frame_reference, frame_provider,
                         status, metadata, created_at
                     ) VALUES (
@@ -131,7 +133,9 @@ async def process_alert(msg_id:str, data:dict, redis_client:aioredis.Redis, sess
                         :status, :metadata, :created_at
                     )
                     ON CONFLICT (alert_id) DO NOTHING
-                """), {
+                """).bindparams(sa.bindparam("metadata", type_=JSONB))
+
+                await session.execute(stmt, {
                     "id": str(uuid.uuid4()),
                     "alert_id": str(alert.alert_id),
                     "camera_id": str(alert.camera_id),

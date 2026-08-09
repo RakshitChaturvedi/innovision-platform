@@ -26,5 +26,7 @@ def create_platform_streams(redis_url: str = "redis://localhost:6379") -> None:
 
 if __name__ == "__main__":
     import os
-    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6378")
+    from dotenv import load_dotenv
+    load_dotenv()
+    redis_url = os.environ.get("REDIS_LOCAL_URL", "redis://localhost:6378")
     create_platform_streams(redis_url)

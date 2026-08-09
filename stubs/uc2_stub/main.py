@@ -9,7 +9,7 @@ from shared.contracts.alert_event import AlertEvent
 from shared.contracts.enums import AlertSeverity, SourceUC
 from shared.platform_client.alert_publisher import AlertPublisher
 
-logging.basicConfig(level=logging.INFO, format="%s(message)s", handlers=[logging.StreamHandler(sys.stdout)])
+logging.basicConfig(level=logging.INFO, format="%(message)s", handlers=[logging.StreamHandler(sys.stdout)])
 logger = logging.getLogger(__name__)
 
 REDIS_HOST = os.environ.get("REDIS_HOST", "redis")

@@ -2,7 +2,7 @@ revision = "0001"
 down_revision = None
 
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import UUID, JSONB, ARRAY
+from sqlalchemy.dialects.postgresql import UUID, JSONB, ARRAY, ENUM
 from alembic import op
 
 def upgrade():
@@ -36,8 +36,8 @@ def upgrade():
         sa.Column("location", sa.String(255), nullable=True),
         sa.Column("rtsp_url", sa.String(1024), nullable=True),
         sa.Column("status",
-                  sa.Enum("online", "offline", "reconnecting", "disabled",
-                          name="camera_status"),
+                  ENUM("online", "offline", "reconnecting", "disabled",
+                          name="camera_status", create_type=False),
                   nullable=False, server_default="offline"),
         sa.Column("use_cases", ARRAY(sa.String), nullable=False,
                   server_default="{}"),
@@ -59,8 +59,8 @@ def upgrade():
         sa.Column("email", sa.String(255), nullable=False, unique=True),
         sa.Column("password_hash", sa.String(255), nullable=False),
         sa.Column("role",
-                  sa.Enum("superadmin", "admin", "operator", "viewer",
-                          name="operator_role"),
+                  ENUM("superadmin", "admin", "operator", "viewer",
+                          name="operator_role", create_type=False),
                   nullable=False, server_default="operator"),
         sa.Column("camera_ids", ARRAY(UUID), nullable=False,
                   server_default="{}"),
@@ -96,12 +96,12 @@ def upgrade():
                   sa.ForeignKey("cameras.id", ondelete="SET NULL"),
                   nullable=True),
         sa.Column("source_uc",
-                  sa.Enum("uc1", "uc2", "uc3", "uc4", name="source_uc"),
+                  ENUM("uc1", "uc2", "uc3", "uc4", name="source_uc", create_type=False),
                   nullable=False),
         sa.Column("alert_type", sa.String(100), nullable=False),
         sa.Column("severity",
-                  sa.Enum("low", "medium", "high", "critical",
-                          name="alert_severity"),
+                  ENUM("low", "medium", "high", "critical",
+                          name="alert_severity", create_type=False),
                   nullable=False),
         sa.Column("title", sa.String(200), nullable=False),
         sa.Column("description", sa.Text, nullable=False),
@@ -109,8 +109,8 @@ def upgrade():
         sa.Column("frame_reference", sa.String(512), nullable=True),
         sa.Column("frame_provider", sa.String(50), nullable=True),
         sa.Column("status",
-                  sa.Enum("pending", "acknowledged", "in_progress",
-                          "resolved", "closed", name="alert_status"),
+                  ENUM("pending", "acknowledged", "in_progress",
+                          "resolved", "closed", name="alert_status", create_type=False),
                   nullable=False, server_default="pending"),
         sa.Column("metadata", JSONB, nullable=False, server_default="{}"),
         sa.Column("created_at", sa.DateTime(timezone=True),
@@ -136,7 +136,7 @@ def upgrade():
         sa.Column("alert_id", UUID, sa.ForeignKey("alerts.id", ondelete="SET NULL"), nullable=True),
         sa.Column("title", sa.String(200), nullable=False),
         sa.Column("status",
-                  sa.Enum("active", "acknowledged", "in_progress", "resolved", "closed", name="incident_status"),
+                  ENUM("active", "acknowledged", "in_progress", "resolved", "closed", name="incident_status", create_type=False),
                   nullable=False, server_default="active"),
         sa.Column("assigned_to", UUID, sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True),
         sa.Column("notes", sa.Text, nullable=True),
@@ -167,7 +167,7 @@ def upgrade():
         sa.Column("entity_type", sa.String(100), nullable=False),
         sa.Column("entity_id", sa.String(255), nullable=False),
         sa.Column("user_id", UUID, nullable=True),
-        sa.Column("source_uc", sa.Enum("uc1", "uc2", "uc3", "uc4", name="source_uc"), nullable=True),
+        sa.Column("source_uc", ENUM("uc1", "uc2", "uc3", "uc4", name="source_uc", create_type=False), nullable=True),
         sa.Column("metadata", JSONB, nullable=False, server_default="{}"),
         sa.Column("timestamp", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")))
 
@@ -182,7 +182,7 @@ def upgrade():
         "notification_log",
         sa.Column("id", UUID, primary_key=True, server_default=sa.text("uuid_generate_v4()")),
         sa.Column("alert_id", UUID, sa.ForeignKey("alerts.id", ondelete="SET NULL"), nullable=True),
-        sa.Column("user_id", UUID, sa.ForeignKey("alerts.id", ondelete="SET NULL"), nullable=True),
+        sa.Column("user_id", UUID, sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True),
         sa.Column("channel", sa.String(50), nullable=False),
         sa.Column("status", sa.String(50), nullable=False),
         sa.Column("error", sa.Text, nullable=True),
@@ -191,20 +191,16 @@ def upgrade():
 
     #seed
     op.execute("""
-    INSERT INTO cameras (id, name, location, status, profile, use_cases)
+    INSERT INTO cameras (id, name, location, status, use_cases)
     VALUES
         ('00000000-0000-0000-0000-000000000001',
-            'Test Camera UC1', 'Integration Test', 'online', 'balanced',
-            ARRAY['uc1']),
+            'Test Camera UC1', 'Integration Test', 'online', ARRAY['uc1']),
         ('00000000-0000-0000-0000-000000000002',
-            'Test Camera UC2', 'Integration Test', 'online', 'balanced',
-            ARRAY['uc2']),
+            'Test Camera UC2', 'Integration Test', 'online', ARRAY['uc2']),
         ('00000000-0000-0000-0000-000000000003',
-            'Test Camera UC3', 'Integration Test', 'online', 'balanced',
-            ARRAY['uc3']),
+            'Test Camera UC3', 'Integration Test', 'online', ARRAY['uc3']),
         ('00000000-0000-0000-0000-000000000004',
-            'Test Camera UC4', 'Integration Test', 'online', 'balanced',
-            ARRAY['uc4'])
+            'Test Camera UC4', 'Integration Test', 'online', ARRAY['uc4'])
     ON CONFLICT DO NOTHING
 """)
 
