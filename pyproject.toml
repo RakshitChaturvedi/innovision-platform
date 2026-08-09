@@ -9,6 +9,7 @@ dependencies = [
     "fastapi>=0.141.1",
     "minio>=7.2.20",
     "pydantic>=2.13.4",
+    "pytest>=9.1.1",
     "redis>=8.1.0",
     "sqlalchemy>=2.0.51",
 ]

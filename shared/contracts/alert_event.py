@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_validator, ConfigDict
 from uuid import UUID, uuid4
 from datetime import datetime
 from typing import Optional
 
-from enums import AlertSeverity, AlertStatus, FrameProvider, SourceUC
+from shared.contracts.enums import AlertSeverity, AlertStatus, FrameProvider, SourceUC
 
 class AlertEvent(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     alert_id: UUID = Field(default_factory=uuid4)
     camera_id: UUID
     timestamp: datetime
@@ -17,7 +19,7 @@ class AlertEvent(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     description: str = Field(min_length=1, max_length=2000)
     source_event_id: UUID
-    source_uc = SourceUC
+    source_uc: SourceUC
     frame_reference: Optional[str] = None
     frame_provider: Optional[FrameProvider] = None
     status: AlertStatus = AlertStatus.PENDING
@@ -37,9 +39,6 @@ class AlertEvent(BaseModel):
                 f"frame_provider={self.frame_provider!r}"
             )
         return self
-
-    class Config:
-        frozen = True
 
 class AlertEventValidator:
     @staticmethod

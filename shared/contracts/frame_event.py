@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from pydantic import BaseModel,Field
+from pydantic import BaseModel,Field, ConfigDict
 from uuid import UUID, uuid4
 from datetime import datetime
 
-from enums import FrameProvider
+from shared.contracts.enums import FrameProvider
 
 class FrameEvent(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     event_id: UUID = Field(default_factory=uuid4)
     camera_id: UUID
     frame_seq: int
@@ -14,9 +16,6 @@ class FrameEvent(BaseModel):
     frame_provider: FrameProvider
     frame_reference: str
     frame_shape: tuple[int, int]
-
-    class Config:
-        frozen = True #contracts shouldnt 
 
 class FrameEventSchema:
     # validation helpers, ucs call these to verify if the events are constructed correctly.
