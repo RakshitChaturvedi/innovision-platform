@@ -1,4 +1,4 @@
-.PHONY: up up-stubs down logs migrate buckets streams test smoke
+.PHONY: up up-stubs down logs migrate buckets streams test smoke smoke2 setup setup2
 
 up:
 	docker compose --env-file .env -f infra/docker-compose.yml up -d --build
@@ -33,5 +33,11 @@ test:
 smoke:
 	python scripts/smoke_test_p1.py
 
+smoke2:
+	python scripts/smoke_test_phase2.py
+
 setup: up migrate buckets streams
 	@echo "Phase 1 setup complete. run 'make up-stubs' to add UC stubs."
+
+setup2: up up-stubs migrate buckets streams
+	@echo "Phase 2 setup complete. Ingestion + Analytics services running."
