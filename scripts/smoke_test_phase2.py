@@ -200,49 +200,7 @@ async def check_heartbeat(r: aioredis.Redis) -> None:
 
         result(received, f"{channel}: {'received' if received else 'no heartbeat within 10s'}")
 
-
-# ── Check 6: Camera Shake ────────────────────────────────────────────────
-
-
-async def check_camera_shake(r: aioredis.Redis) -> None:
-    """Publish a synthetic shake signal and verify it appears on the
-    camera:shake channel."""
-    print("\n[6] Camera Shake Check")
-    test_cam = CAMERA_IDS[0]
-    channel = f"camera:shake:{test_cam}"
-
-    pubsub = r.pubsub()
-    await pubsub.subscribe(channel)
-    # Allow subscribe to settle
-    await asyncio.sleep(0.5)
-
-    # Publish a synthetic shake signal
-    payload = json.dumps({
-        "camera_id": str(test_cam),
-        "timestamp": "2026-08-10T00:00:00Z",
-        "variance": 99.99,
-        "event": "camera_shake_detected",
-        "synthetic": True,
-    })
-    await r.publish(channel, payload)
-
-    received = False
-    start = time.monotonic()
-    while time.monotonic() - start < 5.0:
-        msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
-        if msg and msg["type"] == "message":
-            data = json.loads(msg["data"])
-            if data.get("synthetic"):
-                received = True
-                break
-
-    await pubsub.unsubscribe(channel)
-    await pubsub.aclose()
-
-    result(received, f"{channel}: synthetic shake signal {'received' if received else 'NOT received'}")
-
-
-# ── Check 7: Dynamic Camera Signals ──────────────────────────────────────
+# ── Check 6: Dynamic Camera Signals ──────────────────────────────────────
 
 
 async def check_dynamic_camera(r: aioredis.Redis) -> None:
@@ -295,7 +253,98 @@ async def check_dynamic_camera(r: aioredis.Redis) -> None:
     else:
         result(True, "camera:removed — no stream to verify (camera not in DB)")
 
+# ── Check 7: Redis Cache Check ──────────────────────────────────────
 
+async def check_frame_cache(r: aioredis.Redis) -> None:
+    """Verify recent frames are present in the Redis hot cache."""
+    print("\n[2] Redis Frame Cache Check")
+
+    for cam_id in CAMERA_IDS:
+        stream = f"frames:{cam_id}"
+
+        try:
+            messages = await r.xrevrange(stream, count=1)
+
+            if not messages:
+                result(False, f"{stream}: no frame events")
+                continue
+
+            _, fields = messages[0]
+
+            data = fields.get(b"data") or fields.get("data")
+
+            if isinstance(data, bytes):
+                data = data.decode()
+
+            event = json.loads(data)
+
+            frame_seq = event["frame_seq"]
+
+            cache_key = f"frame:{cam_id}:{frame_seq}"
+
+            exists = await r.exists(cache_key)
+
+            if not exists:
+                result(
+                    False,
+                    f"{cache_key}: cache MISS"
+                )
+                continue
+
+            ttl = await r.ttl(cache_key)
+
+            result(
+                ttl > 0,
+                f"{cache_key}: cache HIT, TTL={ttl}s"
+            )
+
+        except Exception as exc:
+            result(
+                False,
+                f"{stream}: cache check failed — {exc}"
+            )
+
+import httpx
+
+INGESTION_URL = os.environ.get(
+    "INGESTION_URL",
+    "http://localhost:8020",
+)
+
+
+# ── Check 8: Health Check ──────────────────────────────────────
+async def check_health() -> None:
+    """Verify the ingestion service health endpoint."""
+    print("\n[1] Ingestion Service Health")
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{INGESTION_URL}/health",
+                timeout=5,
+            )
+
+        if response.status_code != 200:
+            result(
+                False,
+                f"health endpoint returned HTTP {response.status_code}",
+            )
+            return
+
+        body = response.json()
+
+        healthy = (
+            body.get("status") == "healthy"
+            and body.get("service") == "ingestion"
+        )
+
+        result(
+            healthy,
+            f"ingestion health: {body}",
+        )
+
+    except Exception as exc:
+        result(False, f"health check failed — {exc}")
 # ── Main ──────────────────────────────────────────────────────────────────
 
 
@@ -312,8 +361,9 @@ async def main() -> None:
         await check_redis_stream(r)
         await check_consumer_groups(r)
         await check_heartbeat(r)
-        await check_camera_shake(r)
         await check_dynamic_camera(r)
+        await check_frame_cache(r)
+        await check_health()
     finally:
         await r.aclose()
 

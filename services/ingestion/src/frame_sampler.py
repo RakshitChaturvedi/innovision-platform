@@ -21,7 +21,7 @@ class FrameSampler:
     increments on every accepted sample.
     """
 
-    def __init__(self, target_fps: int = 10) -> None:
+    def __init__(self, target_fps: float = 15.0) -> None:
         self._interval = 1.0 / max(target_fps, 1)
         self._last_sample_time: float = 0.0
         self._frame_seq: int = 0

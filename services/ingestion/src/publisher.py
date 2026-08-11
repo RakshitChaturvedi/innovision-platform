@@ -7,12 +7,12 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from uuid import UUID
 
 import redis.asyncio as aioredis
 
 from shared.contracts.enums import FrameProvider
 from shared.contracts.frame_event import FrameEvent
+from services.ingestion.src.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -26,21 +26,14 @@ class FramePublisher:
     manual initialisation required.
     """
 
-    def __init__(self, redis_client: aioredis.Redis, maxlen: int = 1000) -> None:
+    def __init__(self, redis_client: aioredis.Redis) -> None:
         self._redis = redis_client
-        self._maxlen = maxlen
 
     async def publish(
-        self,
-        camera_id: UUID,
-        frame_seq: int,
-        frame_reference: str,
-        frame_shape: tuple[int, int],
+        self, camera_id: str, frame_seq: int, frame_reference: str, frame_shape: tuple[int, int]
     ) -> str:
         """
         Build a ``FrameEvent``, serialise it, and XADD to the stream.
-
-        Returns the Redis message ID.
         """
         event = FrameEvent(
             camera_id=camera_id,
@@ -57,7 +50,7 @@ class FramePublisher:
         msg_id = await self._redis.xadd(
             stream_key,
             {"data": payload},
-            maxlen=self._maxlen,
+            maxlen=settings.stream_maxlen,
             approximate=True,
         )
 
