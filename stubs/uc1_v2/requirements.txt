@@ -1,0 +1,6 @@
+redis>=5.0
+numpy
+opencv-python-headless
+ultralytics
+uvicorn
+fastapi

@@ -54,3 +54,25 @@ services:
       redis:    { condition: service_healthy }
       postgres: { condition: service_healthy }
     restart: unless-stopped
+
+  uc1_v2_stub:
+    build:
+      context: ..
+      dockerfile: stubs/uc1_v2/Dockerfile
+    env_file:
+      - ../.env
+    ports:
+      - "8021:8021"
+    environment:
+      REDIS_URL: redis://redis:6379
+      TEST_CAMERA_ID: 00000000-0000-0000-0000-000000000001
+      REDIS_CONSUMER_GROUP: uc1_v2_group
+      REDIS_CONSUMER_NAME: uc1_v2_worker_1
+      YOLO_MODEL: yolov8n.pt
+      YOLO_CONFIDENCE: "0.35"
+    depends_on:
+      redis:
+        condition: service_healthy
+      ingestion:
+        condition: service_healthy
+    restart: unless-stopped

@@ -1,4 +1,4 @@
-FROM python:3.13-slim
+FROM python:3.11-slim
 
 WORKDIR /app
 
@@ -8,7 +8,6 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 COPY services/camera_registry/requirements.txt ./requirements.txt
-
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY shared/ ./shared/

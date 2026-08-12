@@ -104,7 +104,7 @@ class CameraIngestionTask:
     async def _process_frame(self, frame: np.ndarray, frame_seq: int, encoder=JpegEncoder) -> None:
         # encode, cache, persist and publish 1 sampled frame
 
-        # 1. Encode
+        # 1. Encodeg
         try:
             jpeg_bytes = encoder.encode(frame)
         except Exception as e:
@@ -115,7 +115,7 @@ class CameraIngestionTask:
 
         # 2. Redis Cache
         try:
-            await self._frame_cache.put(
+            cache_key = await self._frame_cache.put(
                 camera_id=self.camera_id,
                 frame_seq=frame_seq,
                 jpeg_bytes=jpeg_bytes
@@ -124,10 +124,11 @@ class CameraIngestionTask:
             logger.error(
                 "frame_cache_failed camera_id=%s frame_seq=%d error=%s",
                 self.camera_id, frame_seq, e)
+            return
 
         # 3. minio
         try:
-            await asyncio.to_thread(self._frame_store.upload, object_key, jpeg_bytes)
+            await self._frame_store.upload(object_key, jpeg_bytes)
         except Exception as e:
             logger.error("frame_store_failed camera_id=%s frame_seq=%d error=%s", 
                          self.camera_id, frame_seq, e)
@@ -136,7 +137,7 @@ class CameraIngestionTask:
         # 4. publish frame event
         try:
             await self._publisher.publish(
-                camera_id=self.camera_id, frame_seq=frame_seq, frame_reference=object_key,
+                camera_id=self.camera_id, frame_seq=frame_seq, frame_reference=cache_key,
                 frame_shape=(frame.shape[0], frame.shape[1])
             )
         except Exception as e:

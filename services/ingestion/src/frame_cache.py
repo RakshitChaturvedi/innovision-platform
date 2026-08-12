@@ -14,10 +14,11 @@ class FrameCache:
     def _key(camera_id: str, frame_seq: int) -> str:
         return f"frame:{camera_id}:{frame_seq}"
 
-    async def put(self, camera_id: str, frame_seq: int, jpeg_bytes: bytes) -> None:
+    async def put(self, camera_id: str, frame_seq: int, jpeg_bytes: bytes) -> str:
         key = self._key(camera_id, frame_seq)
         await self._redis.set(key, jpeg_bytes, ex=settings.frame_cache_ttl_s)
         logger.debug("frame_cached camera_id=%s seq=%d ttl=%ss", camera_id, frame_seq, settings.frame_cache_ttl_s)
+        return key
 
     async def get(self, camera_id: str, frame_seq:int) -> bytes | None:
         key = self._key(camera_id, frame_seq)

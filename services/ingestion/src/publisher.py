@@ -39,7 +39,7 @@ class FramePublisher:
             camera_id=camera_id,
             frame_seq=frame_seq,
             timestamp=datetime.now(timezone.utc),
-            frame_provider=FrameProvider.MINIO,
+            frame_provider=FrameProvider.REDIS,
             frame_reference=frame_reference,
             frame_shape=frame_shape,
         )
