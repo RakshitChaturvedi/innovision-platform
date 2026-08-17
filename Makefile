@@ -1,5 +1,4 @@
-.PHONY: up up-stubs down logs migrate buckets streams test smoke
-
+.PHONY: up up-stubs down logs migrate buckets streams test smoke smoke2 setup setup2 logs-ingestion logs-registry
 up:
 	docker compose --env-file .env -f infra/docker-compose.yml up -d --build
 
@@ -33,5 +32,33 @@ test:
 smoke:
 	python scripts/smoke_test_p1.py
 
-setup: up migrate buckets streams
-	@echo "Phase 1 setup complete. run 'make up-stubs' to add UC stubs."
+smoke2:
+	python scripts/smoke_test_phase2.py
+
+setup: 
+	$(MAKE) up
+	$(MAKE) migrate
+	$(MAKE) buckets
+	$(MAKE) streams
+	@echo "Phase 1 setup complete."
+	@echo "Run 'make up-stubs' to start UC stubs."
+
+setup2:
+	$(MAKE) up-stubs
+	$(MAKE) migrate
+	$(MAKE) buckets
+	$(MAKE) streams
+	@echo "Phase 2 setup complete."
+	@echo "Run 'make smoke2' to verify the ingestion pipeline."
+
+logs-ingestion:
+	docker compose \
+		--env-file .env \
+		-f infra/docker-compose.yml \
+		logs -f ingestion
+
+logs-registry:
+	docker compose \
+		--env-file .env \
+		-f infra/docker-compose.yml \
+		logs -f camera_registry
