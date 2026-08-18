@@ -4,6 +4,9 @@ import time
 import asyncpg
 import redis.asyncio as aioredis
 import httpx
+from dotenv import load_dotenv
+
+load_dotenv()
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "").replace("+asyncpg", "")
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
