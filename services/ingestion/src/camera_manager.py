@@ -89,7 +89,7 @@ class CameraManager:
         self._asyncio_tasks[camera_id] = asyncio_task
 
         logger.info(
-            "camera_ingestion_started camera_id=%s name=%s fps=%s",
+            "camera_ingestion_started camera_id=%s name=%s fps=%.1f",
             camera_id, camera.get("name"), fps
         )
 
