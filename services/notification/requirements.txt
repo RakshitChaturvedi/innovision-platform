@@ -1,9 +1,8 @@
 fastapi
 uvicorn[standard]
+pydantic
+pydantic-settings
+redis
 sqlalchemy
 asyncpg
-redis
-pydantic
 bcrypt
-pyjwt
-pydantic-settings

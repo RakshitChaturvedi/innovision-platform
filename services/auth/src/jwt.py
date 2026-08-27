@@ -31,7 +31,7 @@ def decode_access_token(token: str) -> dict:
 
 async def create_refresh_token(session: AsyncSession, user_id: str) -> str:
     raw_token = str(uuid.uuid4())
-    token_hash = bcrypt.haspw(raw_token.encode(), bcrypt.gensalt(rounds=10)).decode()
+    token_hash = bcrypt.hashpw(raw_token.encode(), bcrypt.gensalt(rounds=10)).decode()
     expires_at = datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days)
 
     async with session.begin():
@@ -66,7 +66,7 @@ async def rotate_refresh_token(session: AsyncSession, old_raw_token: str, sessio
         logger.warning("refresh_token_mismatch session_id=%s", session_id)
         return None
 
-    async with session.begine():
+    async with session.begin():
         await session.execute(text("""UPDATE sessions SET revoked_at = now() WHERE id = :id"""),
                               {"id": session_id})
     new_refresh = await create_refresh_token(session, str(result.user_id))

@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+redis
+sqlalchemy
+asyncpg
+PyJWT
+python-socketio
+celery
+bcrypt

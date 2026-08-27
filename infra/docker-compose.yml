@@ -155,6 +155,163 @@ services:
       - ../test_data/videos:/app/test_data/videos:ro
     restart: unless-stopped
 
+  auth:
+    build:
+      context: ..
+      dockerfile: services/auth/Dockerfile
+
+    container_name: innovision_auth
+
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ALGORITHM: ${JWT_ALGORITHM}
+      JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES}
+      JWT_REFRESH_TOKEN_EXPIRE_DAYS: ${JWT_REFRESH_TOKEN_EXPIRE_DAYS}
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    ports:
+      - "8000:8000"
+
+    restart: unless-stopped
+
+  alert_management_worker:
+    build:
+      context: ..
+      dockerfile: services/alert_management/Dockerfile
+
+    container_name: innovision_alert_management_worker
+
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CELERY_BROKER_URL: redis://redis:6379/1
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    command:
+      [
+        "celery",
+        "-A",
+        "services.alert_management.src.escalation.celery_app",
+        "worker",
+        "--loglevel=INFO"
+      ]
+
+    restart: unless-stopped
+
+  audit:
+    build:
+      context: ..
+      dockerfile: services/audit/Dockerfile
+
+    container_name: innovision_audit
+
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    ports:
+      - "8002:8000"
+
+    restart: unless-stopped
+
+  incident_management:
+    build:
+      context: ..
+      dockerfile: services/incident_management/Dockerfile
+
+    container_name: innovision_incident_management
+
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ALGORITHM: HS256
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    ports:
+      - "8003:8000"
+
+    restart: unless-stopped
+
+  notification:
+    build:
+      context: ..
+      dockerfile: services/notification/Dockerfile
+
+    container_name: innovision_notification
+
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_FROM: ${SMTP_FROM}
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    ports:
+      - "8004:8000"
+
+    restart: unless-stopped
+
+  reporting_worker:
+    build:
+      context: ..
+      dockerfile: services/reporting/Dockerfile
+
+    container_name: innovision_reporting_worker
+
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      CELERY_BROKER_URL: redis://redis:6379/2
+
+      UC1_COMPLIANCE_URL: http://uc1_api:8000/uc1/compliance/readiness
+      UC3_PPE_METRICS_URL: http://uc3_api:8000/uc3/compliance/ppe-summary
+
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+
+    command:
+      [
+        "celery",
+        "-A",
+        "services.reporting.src.tasks.celery_app",
+        "worker",
+        "--loglevel=INFO"
+      ]
+
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:

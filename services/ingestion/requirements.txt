@@ -10,3 +10,4 @@ pydantic-settings
 python-dotenv
 sqlalchemy[asyncio]
 asyncpg
+bcrypt

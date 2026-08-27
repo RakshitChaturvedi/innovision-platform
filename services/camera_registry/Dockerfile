@@ -11,6 +11,8 @@ COPY services/camera_registry/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY shared/ ./shared/
+COPY services /app/services
+COPY shared /app/shared
 COPY services/camera_registry/ ./services/camera_registry/
 
 ENV PYTHONUNBUFFERED=1
