@@ -34,7 +34,6 @@ async def get_status(camera_id: str, service: CameraRegistryService = Depends(ge
     return {
         "camera_id": camera_id,
         "status": camera["status"],
-        "profile": camera["profile"],
         "use_cases": camera["use_cases"]
     }
 

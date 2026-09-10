@@ -34,16 +34,15 @@ async def create_refresh_token(session: AsyncSession, user_id: str) -> str:
     token_hash = bcrypt.hashpw(raw_token.encode(), bcrypt.gensalt(rounds=10)).decode()
     expires_at = datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days)
 
-    async with session.begin():
-        await session.execute(text("""
-            INSERT INTO sessions (id, user_id, refresh_token_hash, expires_at)
-            VALUES (:id, :user_id, :hash, :expires_at)
-        """), {
-            "id": str(uuid.uuid4()),
-            "user_id": user_id,
-            "hash": token_hash,
-            "expires_at": expires_at
-        })
+    await session.execute(text("""
+        INSERT INTO sessions (id, user_id, refresh_token_hash, expires_at)
+        VALUES (:id, :user_id, :hash, :expires_at)
+    """), {
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "hash": token_hash,
+        "expires_at": expires_at
+    })
 
     return raw_token
 

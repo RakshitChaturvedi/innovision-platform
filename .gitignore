@@ -220,3 +220,6 @@ __marimo__/
 .DS_Store
 
 ./migrations/env.py
+.env
+.env.local
+.env.*.local

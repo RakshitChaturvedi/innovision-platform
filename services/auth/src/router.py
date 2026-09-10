@@ -22,11 +22,12 @@ async def login(email: str, password: str, response: Response, db: AsyncSession 
     """),{"email": email})
     user = row.fetchone()
 
-    if not user or not verify_password(password, user.password_has):
+    if not user or not verify_password(password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     access_token = create_access_token(str(user.id), user.role, [str(c) for c in user.camera_ids])
     refresh_token = await create_refresh_token(db, str(user.id))
+    await db.commit()
 
     response.set_cookie("refresh_token", refresh_token,
                         httponly=True, secure=True, samesite="strict", max_age=7*24*3600)
