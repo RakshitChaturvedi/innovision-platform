@@ -2,13 +2,21 @@
 
 import logging
 from sqlalchemy import text
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
+
+def parse_timestamp(value: str | datetime) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 async def fetch_missed_alerts(session_factory, camera_ids: list[str], since: str) -> list[dict]:
     # returns all still pending alerts for given cams created after since
     if not camera_ids:
         return []
+
+    since = parse_timestamp(since)
 
     async with session_factory() as session:
         rows = await session.execute(text("""

@@ -39,6 +39,7 @@ from services.ingestion.src.frame_store import FrameStore
 from services.ingestion.src.health import register_workers, router as health_router
 from services.ingestion.src.offline_monitor import OfflineMonitor
 from services.ingestion.src.publisher import FramePublisher
+from services.ingestion.src.streaming import router as streaming_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -135,3 +136,4 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Innovision Ingestion Service", version="1.0.0-phase2", lifespan=lifespan)
 app.include_router(health_router)
+app.include_router(streaming_router)

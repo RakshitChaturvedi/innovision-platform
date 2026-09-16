@@ -48,6 +48,21 @@ const navigation: NavigationItem[] = [
   },
 ];
 
+function getSection(label: string) {
+  if (label === "Dashboard") return "Overview";
+
+  if (
+    label === "Alerts" ||
+    label === "Incidents"
+  ) {
+    return "Monitoring";
+  }
+
+  if (label === "Reports") return "Reporting";
+
+  return "Administration";
+}
+
 export function AppLayout() {
   const { user, logout } = useAuth();
 
@@ -55,51 +70,103 @@ export function AppLayout() {
     hasMinimumRole(user, item.minimumRole),
   );
 
-  return (
-    <div className="min-h-screen bg-slate-100">
-      <header className="border-b bg-white px-6 py-4">
-        <div className="flex items-center justify-between">
-          <h1 className="text-lg font-semibold">
-            Innovision Platform
-          </h1>
+  const sections = [
+    "Overview",
+    "Monitoring",
+    "Reporting",
+    "Administration",
+  ];
 
+  return (
+    <div className="app-shell">
+      <aside className="app-sidebar">
+        <div className="sidebar-brand">
+          <div className="brand-mark">I</div>
+
+          <div>
+            <div className="brand-name">Innovision</div>
+            <div className="brand-subtitle">Platform</div>
+          </div>
+        </div>
+
+        <nav className="sidebar-nav" aria-label="Main navigation">
+          {sections.map((section) => {
+            const items = visibleNavigation.filter(
+              (item) => getSection(item.label) === section,
+            );
+
+            if (items.length === 0) {
+              return null;
+            }
+
+            return (
+              <div className="nav-section" key={section}>
+                <div className="nav-section-label">
+                  {section}
+                </div>
+
+                <div className="nav-section-items">
+                  {items.map((item) => (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      end={item.to === "/"}
+                      className={({ isActive }) =>
+                        `nav-item ${isActive ? "active" : ""}`
+                      }
+                    >
+                      <span>{item.label}</span>
+                    </NavLink>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </nav>
+
+        <div className="sidebar-footer">
           {user && (
-            <div className="text-sm text-slate-500">
-              {user.role}
+            <div className="user-summary">
+              <div className="user-avatar">
+                {user.role.charAt(0).toUpperCase()}
+              </div>
+
+              <div className="user-details">
+                <span className="user-role">{user.role}</span>
+                <span className="user-status">Authenticated</span>
+              </div>
             </div>
           )}
-        </div>
-      </header>
-
-      <div className="flex">
-        <aside className="flex min-h-[calc(100vh-65px)] w-64 flex-col border-r bg-white p-4">
-          <nav className="flex-1 space-y-1">
-            {visibleNavigation.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={({ isActive }) =>
-                  `block rounded px-3 py-2 text-sm ${
-                    isActive
-                      ? "bg-slate-200 font-medium"
-                      : "text-slate-600 hover:bg-slate-100"
-                  }`
-                }
-              >
-                {item.label}
-              </NavLink>
-            ))}
-          </nav>
 
           <button
+            type="button"
             onClick={() => void logout()}
-            className="mt-4 w-full rounded px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+            className="logout-button"
           >
             Logout
           </button>
-        </aside>
+        </div>
+      </aside>
 
-        <main className="flex-1 p-6">
+      <div className="app-main">
+        <header className="app-header">
+          <div className="header-spacer" />
+
+          <div className="header-right">
+            <div className="realtime-indicator">
+              <span className="realtime-dot" />
+              <span>Realtime</span>
+            </div>
+
+            {user && (
+              <div className="header-role">
+                {user.role}
+              </div>
+            )}
+          </div>
+        </header>
+
+        <main className="app-content">
           <Outlet />
         </main>
       </div>

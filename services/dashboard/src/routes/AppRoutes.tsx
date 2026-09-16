@@ -7,7 +7,7 @@ import { Unauthorized } from "@/pages/Unauthorized";
 
 import MasterDashboard from "@/pages/MasterDashboard";
 import CameraDetail from "@/pages/CameraDetail";
-import { Alerts } from "@/pages/Alerts";
+import Alerts from "@/pages/Alerts";
 import { Incidents } from "@/pages/Incidents";
 import { Reports } from "@/pages/Reports";
 import { Compliance } from "@/pages/Compliance";

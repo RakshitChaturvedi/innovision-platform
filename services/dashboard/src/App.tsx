@@ -1,7 +1,8 @@
 import { AppRoutes } from "./routes/AppRoutes";
+import SocketProvider from "./realtime/SocketProvider";
 
 function App() {
-  return <AppRoutes />;
+  return (<SocketProvider> <AppRoutes /> </SocketProvider>);
 }
 
 export default App;

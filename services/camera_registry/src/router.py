@@ -49,3 +49,19 @@ async def cameras_for_uc(uc_id: str, service: CameraRegistryService = Depends(ge
     # internal endpoint. uc analytics services call on startup
     camera_ids = await service.get_cameras_for_uc(uc_id)
     return {"uc_id": uc_id, "camera_ids": camera_ids}
+
+@router.get("/{camera_id}/status")
+async def get_status(
+    camera_id: str,
+    service: CameraRegistryService = Depends(get_service),
+):
+    camera = await service.get_camera(camera_id)
+
+    if not camera:
+        raise HTTPException(status_code=404)
+
+    return {
+        "camera_id": camera_id,
+        "status": camera["status"],
+        "use_cases": camera["use_cases"],
+    }

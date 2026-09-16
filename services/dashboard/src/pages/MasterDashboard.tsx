@@ -1,15 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { getCameras } from "@/api/cameras";
+
 import { ErrorState } from "@/components/common/ErrorState";
 import { LoadingState } from "@/components/common/LoadingState";
 import { EmptyState } from "@/components/common/EmptyState";
-import { useAuth } from "@/store/useAuth";
+
 import CameraTile from "@/components/cameras/CameraTile";
 
 export default function MasterDashboard() {
-  const { user } = useAuth();
-
   const {
     data: cameras,
     isLoading,
@@ -17,51 +16,102 @@ export default function MasterDashboard() {
   } = useQuery({
     queryKey: ["cameras"],
     queryFn: getCameras,
+    refetchInterval: 5000,
   });
 
   if (isLoading) {
     return <LoadingState />;
   }
 
-if (isError) {
-  return <ErrorState message="Failed to load cameras." />;
-}
+  if (isError) {
+    return <ErrorState message="Failed to load cameras." />;
+  }
 
   if (!cameras || cameras.length === 0) {
     return <EmptyState message="No cameras available." />;
   }
 
-  const visibleCameras =
-    user?.role === "admin" || user?.role === "superadmin"
-      ? cameras
-      : cameras.filter((camera) =>
-          user?.camera_ids.includes(camera.id),
-        );
+  const onlineCount = cameras.filter(
+    (camera) => camera.status === "online",
+  ).length;
 
-  if (visibleCameras.length === 0) {
-    return <EmptyState message="No cameras assigned to you." />;
-  }
+  const offlineCount = cameras.filter(
+    (camera) => camera.status === "offline",
+  ).length;
+
+  const useCaseCount = new Set(
+    cameras.flatMap((camera) => camera.use_cases),
+  ).size;
 
   return (
-    <main>
-      <header>
-        <h1>Master Dashboard</h1>
-        <p>{visibleCameras.length} cameras</p>
+    <main className="page">
+      <header className="page-header">
+        <div>
+          <h1 className="page-title">Master Dashboard</h1>
+          <p className="page-description">
+            System overview and live camera monitoring.
+          </p>
+        </div>
       </header>
 
       <section
-        aria-label="Camera grid"
-        style={{
-          display: "grid",
-          gridTemplateColumns:
-            "repeat(auto-fill, minmax(320px, 1fr))",
-          gap: "16px",
-          marginTop: "24px",
-        }}
+        className="dashboard-stats"
+        aria-label="Dashboard statistics"
       >
-        {visibleCameras.map((camera) => (
-            <CameraTile key={camera.id} camera={camera} />
-        ))}
+        <div className="stat">
+          <span className="stat-label">Cameras</span>
+          <strong className="stat-value">
+            {cameras.length}
+          </strong>
+        </div>
+
+        <div className="stat">
+          <span className="stat-label">Online</span>
+          <strong className="stat-value stat-success">
+            {onlineCount}
+          </strong>
+        </div>
+
+        <div className="stat">
+          <span className="stat-label">Offline</span>
+          <strong className="stat-value stat-danger">
+            {offlineCount}
+          </strong>
+        </div>
+
+        <div className="stat">
+          <span className="stat-label">Use Cases</span>
+          <strong className="stat-value">
+            {useCaseCount}
+          </strong>
+        </div>
+      </section>
+
+      <section aria-labelledby="cameras-heading">
+        <div className="section-header">
+          <div>
+            <h2 id="cameras-heading" className="section-title">
+              Cameras
+            </h2>
+            <p className="section-description">
+              Live status and monitoring feeds.
+            </p>
+          </div>
+
+          <span className="section-count">
+            {cameras.length}{" "}
+            {cameras.length === 1 ? "camera" : "cameras"}
+          </span>
+        </div>
+
+        <div className="camera-grid">
+          {cameras.map((camera) => (
+            <CameraTile
+              key={camera.id}
+              camera={camera}
+            />
+          ))}
+        </div>
       </section>
     </main>
   );

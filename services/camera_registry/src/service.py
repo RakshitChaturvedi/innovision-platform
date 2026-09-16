@@ -73,7 +73,7 @@ class CameraRegistryService:
         async with self._session_factory() as session:
             rows = await session.execute(
                 text("""
-                    SELECT id, name, rtsp_url, fps, use_cases
+                    SELECT id, name, location, rtsp_url, status, fps, use_cases
                     FROM cameras
                     WHERE status != 'disabled'
                 """))
@@ -85,3 +85,22 @@ class CameraRegistryService:
                 await session.execute(text("""
                     UPDATE cameras SET status = :status, updated_at = now() WHERE id = :id
                 """), {"status": status, "id": camera_id})
+
+    async def get_camera(self, camera_id: str) -> dict | None:
+        async with self._session_factory() as session:
+            row = await session.execute(
+                text("""
+                    SELECT id, name, location, rtsp_url, status, fps, use_cases
+                    FROM cameras
+                    WHERE id = :id
+                    AND status != 'disabled'
+                """),
+                {"id": camera_id},
+            )
+
+            camera = row.fetchone()
+
+            if not camera:
+                return None
+
+            return dict(camera._mapping)

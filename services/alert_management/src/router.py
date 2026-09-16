@@ -71,7 +71,7 @@ async def acknowledge(
 
         await write_audit_entry(
             _session_factory, service="alert_management", action="alert_acknowledged",
-            entity_type="alert", entity_id=alert_id, user_id=user["sub"],
+            entity_type="alert", entity_id=alert_id, user_id=user["sub"], session=db
         )
 
     row = (await db.execute(text("SELECT * FROM alerts WHERE alert_id = :id"),
@@ -93,7 +93,7 @@ async def resolve(
 
         await write_audit_entry(
             _session_factory, service="alert_management", action="alert_resolved",
-            entity_type="alert", entity_id=alert_id, user_id=user["sub"],
+            entity_type="alert", entity_id=alert_id, user_id=user["sub"], session=db
         )
 
     row = (await db.execute(text("SELECT * FROM alerts WHERE alert_id = :id"),

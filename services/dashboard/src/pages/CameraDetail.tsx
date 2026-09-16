@@ -5,14 +5,14 @@ import {
   getCameras,
   getCameraStatus,
 } from "@/api/cameras";
+
 import { ErrorState } from "@/components/common/ErrorState";
 import { LoadingState } from "@/components/common/LoadingState";
-import { useAuth } from "@/store/useAuth";
-import { canSeeCamera } from "@/lib/rbac";
+
+import LiveFeed from "@/components/cameras/LiveFeed";
 
 export default function CameraDetail() {
   const { cameraId } = useParams<{ cameraId: string }>();
-  const { user } = useAuth();
 
   const camerasQuery = useQuery({
     queryKey: ["cameras"],
@@ -23,15 +23,12 @@ export default function CameraDetail() {
     queryKey: ["camera", cameraId, "status"],
     queryFn: () => getCameraStatus(cameraId as string),
     enabled: Boolean(cameraId),
+    refetchInterval: 5000,
   });
 
   if (!cameraId) {
-    return <ErrorState message="Camera ID is missing." />;
-  }
-
-  if (!user || !canSeeCamera(user, cameraId)) {
     return (
-      <ErrorState message="You do not have access to this camera." />
+      <ErrorState message="Camera ID is missing." />
     );
   }
 
@@ -40,7 +37,9 @@ export default function CameraDetail() {
   }
 
   if (camerasQuery.isError) {
-    return <ErrorState message="Failed to load cameras." />;
+    return (
+      <ErrorState message="Failed to load cameras." />
+    );
   }
 
   const camera = camerasQuery.data?.find(
@@ -48,106 +47,154 @@ export default function CameraDetail() {
   );
 
   if (!camera) {
-    return <ErrorState message="Camera not found." />;
+    return (
+      <ErrorState message="Camera not found." />
+    );
   }
 
   const status = statusQuery.data ?? camera.status;
 
+  const statusLabel =
+    status === "online"
+      ? "Online"
+      : status === "offline"
+        ? "Offline"
+        : status === "reconnecting"
+          ? "Reconnecting"
+          : "Disabled";
+
   return (
-    <main>
-      <header>
-        <Link to="/">← Back to Dashboard</Link>
+    <main className="page camera-detail-page">
+      <header className="camera-detail-header">
+        <Link
+          to="/"
+          className="back-link"
+        >
+          ← Back to Dashboard
+        </Link>
 
-        <h1>{camera.name}</h1>
+        <div className="camera-detail-title-row">
+          <div>
+            <h1 className="page-title">
+              {camera.name}
+            </h1>
 
-        <p>
-          Status: <strong>{status}</strong>
-        </p>
+            <p className="page-description">
+              {camera.location ?? "No location specified"}
+              {" · "}
+              {camera.use_cases.length > 0
+                ? camera.use_cases.join(", ").toUpperCase()
+                : "No use cases"}
+            </p>
+          </div>
+
+          <span
+            className={`status-badge status-${status}`}
+          >
+            <span className="status-dot" />
+            {statusLabel}
+          </span>
+        </div>
       </header>
 
       <section
-        aria-label="Camera feed"
-        style={{
-          marginTop: "24px",
-          minHeight: "400px",
-          border: "1px solid #ddd",
-          borderRadius: "8px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
+        className="camera-detail-feed"
+        aria-label={`${camera.name} live feed`}
       >
-        <p>Live camera feed will be integrated here.</p>
+        <LiveFeed
+          cameraId={camera.id}
+          cameraName={camera.name}
+          isOnline={status === "online"}
+        />
       </section>
 
       <section
+        className="camera-detail-info"
         aria-label="Camera information"
-        style={{
-          marginTop: "24px",
-          display: "grid",
-          gridTemplateColumns:
-            "repeat(auto-fit, minmax(240px, 1fr))",
-          gap: "16px",
-        }}
       >
-        <article>
-          <h2>Camera Information</h2>
-          <p>Camera ID: {camera.id}</p>
-          <p>FPS: {camera.fps}</p>
-        </article>
+        <div className="detail-group">
+          <span className="detail-label">
+            Camera ID
+          </span>
 
-        <article>
-          <h2>Assigned Use Cases</h2>
+          <span className="detail-value detail-id">
+            {camera.id}
+          </span>
+        </div>
 
-          {camera.use_cases.length > 0 ? (
-            <ul>
-              {camera.use_cases.map((useCase) => (
-                <li key={useCase}>{useCase}</li>
-              ))}
-            </ul>
-          ) : (
-            <p>No use cases assigned.</p>
-          )}
-        </article>
+        <div className="detail-group">
+          <span className="detail-label">
+            Location
+          </span>
+
+          <span className="detail-value">
+            {camera.location ?? "Not specified"}
+          </span>
+        </div>
+
+        <div className="detail-group">
+          <span className="detail-label">
+            Frame Rate
+          </span>
+
+          <span className="detail-value">
+            {camera.fps} FPS
+          </span>
+        </div>
+
+        <div className="detail-group">
+          <span className="detail-label">
+            Use Cases
+          </span>
+
+          <span className="detail-value">
+            {camera.use_cases.length > 0
+              ? camera.use_cases.join(", ")
+              : "None"}
+          </span>
+        </div>
       </section>
 
       <section
-        aria-label="Alert status"
-        style={{
-          marginTop: "24px",
-          border: "1px solid #ddd",
-          borderRadius: "8px",
-          padding: "16px",
-        }}
-      >
-        <h2>Alert Status</h2>
-        <p>Alert summary will be integrated in D5.</p>
-      </section>
-
-      <section
+        className="camera-detail-section"
         aria-label="Incident status"
-        style={{
-          marginTop: "24px",
-          border: "1px solid #ddd",
-          borderRadius: "8px",
-          padding: "16px",
-        }}
       >
-        <h2>Incident Status</h2>
-        <p>Incident summary will be integrated in D6.</p>
+        <div className="section-header">
+          <div>
+            <h2 className="section-title">
+              Incident Status
+            </h2>
+
+            <p className="section-description">
+              Incident information associated with this camera.
+            </p>
+          </div>
+        </div>
+
+        <div className="detail-placeholder">
+          Incident summary will be integrated in D6.
+        </div>
       </section>
 
       <section
+        className="camera-detail-section"
         aria-label="Use case metrics"
-        style={{
-          marginTop: "24px",
-          border: "1px solid #ddd",
-          borderRadius: "8px",
-          padding: "16px",
-        }}
       >
-        <h2>Use Case Metrics</h2>
-        <p>UC-specific metrics will be integrated later.</p>
+        <div className="section-header">
+          <div>
+            <h2 className="section-title">
+              Use Case Metrics
+            </h2>
+
+            <p className="section-description">
+              Analytics metrics associated with this camera.
+            </p>
+          </div>
+        </div>
+
+        <div className="detail-placeholder">
+          UC-specific metrics will be integrated later.
+        </div>
       </section>
     </main>
   );

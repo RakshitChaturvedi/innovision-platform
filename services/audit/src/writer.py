@@ -17,6 +17,7 @@ transaction since it uses the same session.
 import logging
 import uuid
 from sqlalchemy import text
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ async def write_audit_entry(
                 "entity_id": entity_id,
                 "user_id": user_id,
                 "source_uc": source_uc,
-                "metadata": metadata or {},
+                "metadata": json.dumps(metadata or {}),
             },
         )
     if session is not None:
