@@ -24,3 +24,6 @@ class CameraResponse(BaseModel):
     use_cases: list[str]
     fps: int
     created_at: datetime
+
+class CameraStatusUpdate(BaseModel):
+    status: CameraStatus

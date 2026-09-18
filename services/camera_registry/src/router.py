@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from services.camera_registry.src.schemas import CameraCreate, CameraConfigUpdate, CameraResponse
+from services.camera_registry.src.schemas import CameraCreate, CameraConfigUpdate, CameraResponse, CameraStatusUpdate
 from services.camera_registry.src.service import CameraRegistryService
 from services.auth.src.rbac import require_role, Role
 
@@ -25,17 +25,6 @@ async def update_config(
 ):
     await service.update_config(camera_id, body)
     return {"status": "updated"}
-
-@router.get("/{camera_id}/status")
-async def get_status(camera_id: str, service: CameraRegistryService = Depends(get_service)):
-    camera = await service.get_camera(camera_id)
-    if not camera:
-        raise HTTPException(status_code=404)
-    return {
-        "camera_id": camera_id,
-        "status": camera["status"],
-        "use_cases": camera["use_cases"]
-    }
 
 @router.delete("/{camera_id}", status_code=204, dependencies=[Depends(require_role(Role.SUPERADMIN))])
 async def delete_camera(
@@ -64,4 +53,17 @@ async def get_status(
         "camera_id": camera_id,
         "status": camera["status"],
         "use_cases": camera["use_cases"],
+    }
+
+@router.patch("/{camera_id}/status")
+async def update_status(
+    camera_id: str,
+    body: CameraStatusUpdate,
+    service: CameraRegistryService = Depends(get_service),
+):
+    await service.update_status(camera_id, body.status)
+
+    return {
+        "camera_id": camera_id,
+        "status": body.status,
     }

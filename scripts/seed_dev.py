@@ -27,7 +27,7 @@ CAMERAS = [
         "name": "Test Camera UC2",
         "location": "Development",
         "video_path": "/app/test_data/videos/uc2.mp4",
-        "use_cases": ["uc2"],
+        "use_cases": ["uc1"],
         "fps": 10,
     },
     {
@@ -35,7 +35,7 @@ CAMERAS = [
         "name": "Test Camera UC3",
         "location": "Development",
         "video_path": "/app/test_data/videos/uc3.mp4",
-        "use_cases": ["uc3"],
+        "use_cases": ["uc1"],
         "fps": 10,
     },
     {
@@ -43,7 +43,7 @@ CAMERAS = [
         "name": "Test Camera UC4",
         "location": "Development",
         "video_path": "/app/test_data/videos/uc4.mp4",
-        "use_cases": ["uc4"],
+        "use_cases": ["uc1"],
         "fps": 10,
     },
 ]
