@@ -4,3 +4,6 @@ sqlalchemy
 asyncpg
 redis
 pydantic
+bcrypt
+pyjwt
+pydantic-settings

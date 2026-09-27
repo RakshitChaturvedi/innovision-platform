@@ -1,11 +1,8 @@
 """
-UC1-v2 integration stub.
+UC1-v2 platform integration demo.
 
-Consumes FrameEvents from the ingestion Redis Stream, retrieves
-the actual JPEG frame from the Redis hot-path cache, decodes it,
-and performs lightweight person detection using YOLOv8n.
-
-This is intentionally separate from the existing UC1 stub.
+UC1 discovers its assigned cameras from Camera Registry and consumes
+the corresponding ingestion frame streams from Redis.
 """
 
 from __future__ import annotations
@@ -15,43 +12,49 @@ import json
 import logging
 import os
 import time
+import uuid
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 import cv2
+import httpx
 import numpy as np
 import redis.asyncio as aioredis
+from fastapi import FastAPI
 from redis.exceptions import ResponseError
 from ultralytics import YOLO
-from contextlib import asynccontextmanager
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
 
+
+# ─── Logging ──────────────────────────────────────────────────────
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s — %(message)s",
 )
 
-logger = logging.getLogger("uc1_v2")
+logger = logging.getLogger("uc1_v2_platform")
 
+
+# ─── Configuration ───────────────────────────────────────────────
 
 REDIS_URL = os.getenv(
     "REDIS_URL",
     "redis://redis:6379",
 )
 
-CAMERA_ID = os.getenv(
-    "TEST_CAMERA_ID",
-    "00000000-0000-0000-0000-000000000001",
+CAMERA_REGISTRY_URL = os.getenv(
+    "CAMERA_REGISTRY_URL",
+    "http://camera_registry:8011",
 )
 
-STREAM = f"frames:{CAMERA_ID}"
+UC_ID = "uc1"
 
-GROUP = os.getenv(
+REDIS_CONSUMER_GROUP = os.getenv(
     "REDIS_CONSUMER_GROUP",
     "uc1_v2_group",
 )
 
-CONSUMER = os.getenv(
+REDIS_CONSUMER_NAME = os.getenv(
     "REDIS_CONSUMER_NAME",
     "uc1_v2_worker_1",
 )
@@ -65,9 +68,41 @@ CONFIDENCE = float(
     os.getenv("YOLO_CONFIDENCE", "0.35")
 )
 
+ALERTS_STREAM = "alerts:live"
+
+PEOPLE_THRESHOLD = int(
+    os.getenv("PEOPLE_THRESHOLD", "3")
+)
+
+ALERT_COOLDOWN_SECONDS = float(
+    os.getenv("ALERT_COOLDOWN_SECONDS", "20")
+)
+
+ALERT_MGMT_URL = os.getenv(
+    "ALERT_MGMT_URL",
+    "http://alert_management:8000",
+)
+
+INCIDENT_MGMT_URL = os.getenv(
+    "INCIDENT_MGMT_URL",
+    "http://incident_management:8000",
+)
+
+PLATFORM_POLL_INTERVAL_S = float(
+    os.getenv("PLATFORM_POLL_INTERVAL_S", "3")
+)
+
+
+# ─── Runtime state ────────────────────────────────────────────────
+
+camera_ids: list[str] = []
+
+camera_streams: dict[str, str] = {}
+
+
 latest_result = {
     "status": "starting",
-    "camera_id": CAMERA_ID,
+    "camera_id": None,
     "frame_seq": None,
     "people": 0,
     "resolution": None,
@@ -80,45 +115,322 @@ latest_result = {
     "last_update": None,
 }
 
-async def ensure_consumer_group(
+
+pipeline_state = {
+    "stage_ingestion": "idle",
+    "stage_detection": "idle",
+    "stage_alert_published": "idle",
+    "stage_alert_persisted": "idle",
+    "stage_incident_created": "idle",
+    "last_alert_id": None,
+    "last_alert_at": None,
+}
+
+
+platform_view = {
+    "alerts": [],
+    "incidents": [],
+    "platform_reachable": False,
+    "last_poll_error": None,
+}
+
+
+# Per-camera alert cooldown.
+_last_alert_fired_at: dict[str, float] = {}
+
+
+# ─── Camera Registry ─────────────────────────────────────────────
+
+async def discover_cameras(
+    client: httpx.AsyncClient,
+) -> list[str]:
+    response = await client.get(
+        f"{CAMERA_REGISTRY_URL}/cameras/by-uc/{UC_ID}"
+    )
+
+    response.raise_for_status()
+
+    payload = response.json()
+
+    camera_ids = payload.get("camera_ids")
+
+    if not isinstance(camera_ids, list):
+        raise RuntimeError(
+            "Camera Registry returned an invalid camera assignment response"
+        )
+
+    return camera_ids
+
+
+async def load_camera_assignments() -> None:
+    global camera_ids
+    global camera_streams
+
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        discovered_camera_ids = await discover_cameras(client)
+
+    camera_ids = [
+        camera_id
+        for camera_id in discovered_camera_ids
+        if camera_id
+    ]
+
+    camera_streams = {
+        camera_id: f"frames:{camera_id}"
+        for camera_id in camera_ids
+    }
+
+    logger.info(
+        "camera_registry_discovery uc=%s cameras=%s",
+        UC_ID,
+        camera_ids,
+    )
+
+    if not camera_ids:
+        logger.warning(
+            "no_cameras_assigned_to_uc uc=%s",
+            UC_ID,
+        )
+
+
+# ─── Alert Publishing ────────────────────────────────────────────
+
+async def maybe_fire_alert(
+    redis_client: aioredis.Redis,
+    people: int,
+    frame_seq: int,
+    camera_id: str,
+) -> None:
+
+    if people < PEOPLE_THRESHOLD:
+        return
+
+    now = time.monotonic()
+
+    last_fired = _last_alert_fired_at.get(
+        camera_id,
+        0.0,
+    )
+
+    if (
+        now - last_fired
+        < ALERT_COOLDOWN_SECONDS
+    ):
+        return
+
+    _last_alert_fired_at[camera_id] = now
+
+    alert_id = str(uuid.uuid4())
+
+    source_event_id = str(uuid.uuid4())
+
+    timestamp = datetime.now(
+        timezone.utc
+    ).isoformat()
+
+    severity = (
+        "critical"
+        if people >= PEOPLE_THRESHOLD * 2
+        else "high"
+    )
+
+    alert = {
+        "alert_id": alert_id,
+        "camera_id": camera_id,
+        "timestamp": timestamp,
+        "severity": severity,
+        "alert_type": "headcount_breach",
+        "title": (
+            f"Headcount Threshold Exceeded — "
+            f"{people} persons detected"
+        ),
+        "description": (
+            f"UC1 detected {people} persons in frame "
+            f"(threshold: {PEOPLE_THRESHOLD}). "
+            f"Frame sequence {frame_seq}."
+        ),
+        "source_event_id": source_event_id,
+        "source_uc": UC_ID,
+        "frame_reference": None,
+        "frame_provider": None,
+        "status": "pending",
+        "metadata": {
+            "people_count": people,
+            "threshold": PEOPLE_THRESHOLD,
+            "frame_seq": frame_seq,
+            "camera_id": camera_id,
+            "demo_stub": "uc1_v2",
+        },
+    }
+
+    await redis_client.xadd(
+        ALERTS_STREAM,
+        {
+            "data": json.dumps(alert),
+        },
+    )
+
+    pipeline_state[
+        "stage_alert_published"
+    ] = "active"
+
+    pipeline_state[
+        "last_alert_id"
+    ] = alert_id
+
+    pipeline_state[
+        "last_alert_at"
+    ] = time.time()
+
+    logger.warning(
+        "alert_published_to_platform "
+        "alert_id=%s camera_id=%s "
+        "people=%d severity=%s",
+        alert_id,
+        camera_id,
+        people,
+        severity,
+    )
+
+
+# ─── Platform Poller ──────────────────────────────────────────────
+
+async def poll_platform_state() -> None:
+
+    async with httpx.AsyncClient(timeout=5.0) as client:
+
+        while True:
+
+            try:
+
+                alerts_response = await client.get(
+                    f"{ALERT_MGMT_URL}/alerts",
+                    params={
+                        "source_uc": UC_ID,
+                        "limit": 10,
+                    },
+                )
+
+                alerts_response.raise_for_status()
+
+                alerts = alerts_response.json()
+
+                incidents_response = await client.get(
+                    f"{INCIDENT_MGMT_URL}/incidents",
+                    params={
+                        "limit": 10,
+                    },
+                )
+
+                incidents_response.raise_for_status()
+
+                incidents = incidents_response.json()
+
+                platform_view[
+                    "alerts"
+                ] = alerts
+
+                platform_view[
+                    "incidents"
+                ] = incidents
+
+                platform_view[
+                    "platform_reachable"
+                ] = True
+
+                platform_view[
+                    "last_poll_error"
+                ] = None
+
+                last_alert_id = (
+                    pipeline_state[
+                        "last_alert_id"
+                    ]
+                )
+
+                if any(
+                    alert.get("alert_id")
+                    == last_alert_id
+                    for alert in alerts
+                ):
+                    pipeline_state[
+                        "stage_alert_persisted"
+                    ] = "active"
+
+                triggering_alert_row_ids = {
+                    alert["id"]
+                    for alert in alerts
+                    if (
+                        alert.get("alert_id")
+                        == last_alert_id
+                        and alert.get("id")
+                        is not None
+                    )
+                }
+
+                if any(
+                    incident.get("alert_id")
+                    in triggering_alert_row_ids
+                    for incident in incidents
+                ):
+                    pipeline_state[
+                        "stage_incident_created"
+                    ] = "active"
+
+            except asyncio.CancelledError:
+                raise
+
+            except Exception as exc:
+
+                platform_view[
+                    "platform_reachable"
+                ] = False
+
+                platform_view[
+                    "last_poll_error"
+                ] = str(exc)
+
+            await asyncio.sleep(
+                PLATFORM_POLL_INTERVAL_S
+            )
+
+
+# ─── Redis Consumer Groups ───────────────────────────────────────
+
+async def ensure_consumer_groups(
     redis_client: aioredis.Redis,
 ) -> None:
-    """Create the consumer group if it doesn't already exist."""
 
-    try:
-        await redis_client.xgroup_create(
-            name=STREAM,
-            groupname=GROUP,
-            id="0",
-            mkstream=True,
-        )
+    for stream in camera_streams.values():
 
-        logger.info(
-            "consumer_group_created stream=%s group=%s",
-            STREAM,
-            GROUP,
-        )
+        try:
 
-    except ResponseError as exc:
-        if "BUSYGROUP" in str(exc):
-            logger.info(
-                "consumer_group_exists stream=%s group=%s",
-                STREAM,
-                GROUP,
+            await redis_client.xgroup_create(
+                name=stream,
+                groupname=REDIS_CONSUMER_GROUP,
+                id="0",
+                mkstream=True,
             )
-        else:
-            raise
 
+            logger.info(
+                "consumer_group_created "
+                "stream=%s group=%s",
+                stream,
+                REDIS_CONSUMER_GROUP,
+            )
+
+        except ResponseError as exc:
+
+            if "BUSYGROUP" not in str(exc):
+                raise
+
+
+# ─── Detection ────────────────────────────────────────────────────
 
 def count_people(
     model: YOLO,
     frame: np.ndarray,
-) -> int:
-    """
-    Run lightweight person detection.
-
-    COCO class 0 = person.
-    """
+) -> tuple[int, np.ndarray]:
 
     results = model(
         frame,
@@ -130,10 +442,17 @@ def count_people(
     count = 0
 
     for result in results:
+
         if result.boxes is not None:
             count += len(result.boxes)
 
-    return count
+    annotated_frame = (
+        results[0].plot()
+        if len(results) > 0
+        else frame
+    )
+
+    return count, annotated_frame
 
 
 async def process_message(
@@ -142,15 +461,10 @@ async def process_message(
     message_id: str,
     fields: dict[str, str],
 ) -> None:
-    """Process one FrameEvent."""
 
     payload = fields.get("data")
 
     if not payload:
-        logger.warning(
-            "frame_event_missing_data message_id=%s",
-            message_id,
-        )
         return
 
     event = json.loads(payload)
@@ -160,52 +474,48 @@ async def process_message(
     frame_reference = event["frame_reference"]
     frame_provider = event["frame_provider"]
 
-    logger.debug(
-        "frame_event_received "
-        "camera_id=%s frame_seq=%d provider=%s reference=%s",
-        camera_id,
-        frame_seq,
-        frame_provider,
-        frame_reference,
-    )
+    pipeline_state[
+        "stage_ingestion"
+    ] = "active"
 
-    # We explicitly want to prove the Redis hot path.
     if frame_provider != "redis":
+
         logger.warning(
-            "unexpected_frame_provider "
-            "camera_id=%s frame_seq=%d provider=%s",
+            "unsupported_frame_provider "
+            "camera_id=%s provider=%s",
             camera_id,
-            frame_seq,
             frame_provider,
         )
-        return
 
-    # ---------------------------------------------------------------
-    # Fetch JPEG from Redis hot-path cache
-    # ---------------------------------------------------------------
+        return
 
     fetch_start = time.perf_counter()
 
-    jpeg_bytes = await redis_client.get(frame_reference)
+    jpeg_bytes = await redis_client.get(
+        frame_reference
+    )
 
     fetch_ms = (
-        time.perf_counter() - fetch_start
+        time.perf_counter()
+        - fetch_start
     ) * 1000
 
     if jpeg_bytes is None:
-        latest_result["cache_misses"] += 1
-        logger.warning(
+
+        latest_result[
+            "cache_misses"
+        ] += 1
+
+        logger.debug(
             "frame_cache_miss "
-            "camera_id=%s frame_seq=%d key=%s",
+            "camera_id=%s frame_seq=%s "
+            "reference=%s",
             camera_id,
             frame_seq,
             frame_reference,
         )
-        return
 
-    # ---------------------------------------------------------------
-    # Decode JPEG
-    # ---------------------------------------------------------------
+        return
 
     jpeg_array = np.frombuffer(
         jpeg_bytes,
@@ -218,30 +528,34 @@ async def process_message(
     )
 
     if frame is None:
-        logger.error(
+
+        logger.warning(
             "frame_decode_failed "
-            "camera_id=%s frame_seq=%d",
+            "camera_id=%s frame_seq=%s",
             camera_id,
             frame_seq,
         )
+
         return
 
-    # ---------------------------------------------------------------
-    # Lightweight person detection
-    # ---------------------------------------------------------------
+    pipeline_state[
+        "stage_detection"
+    ] = "active"
 
     detection_start = time.perf_counter()
 
-    people = count_people(
+    people, _annotated_frame = count_people(
         model,
         frame,
     )
 
     detection_ms = (
-        time.perf_counter() - detection_start
+        time.perf_counter()
+        - detection_start
     ) * 1000
 
     height, width = frame.shape[:2]
+
     latest_result.update(
         {
             "status": "running",
@@ -251,59 +565,72 @@ async def process_message(
             "resolution": f"{width}x{height}",
             "jpeg_bytes": len(jpeg_bytes),
             "cache": "hit",
-            "cache_fetch_ms": round(fetch_ms, 2),
-            "detection_ms": round(detection_ms, 2),
-            "frames_processed": latest_result["frames_processed"] + 1,
+            "cache_fetch_ms": round(
+                fetch_ms,
+                2,
+            ),
+            "detection_ms": round(
+                detection_ms,
+                2,
+            ),
+            "frames_processed": (
+                latest_result[
+                    "frames_processed"
+                ] + 1
+            ),
             "last_update": time.time(),
         }
     )
 
-    logger.info(
-        "uc1_frame_processed "
-        "camera_id=%s "
-        "frame_seq=%d "
-        "people=%d "
-        "resolution=%dx%d "
-        "jpeg_bytes=%d "
-        "cache=hit "
-        "cache_fetch_ms=%.2f "
-        "detection_ms=%.2f",
-        camera_id,
-        frame_seq,
-        people,
-        width,
-        height,
-        len(jpeg_bytes),
-        fetch_ms,
-        detection_ms,
+    await maybe_fire_alert(
+        redis_client=redis_client,
+        people=people,
+        frame_seq=frame_seq,
+        camera_id=camera_id,
     )
 
+
+# ─── Multi-Camera Consumer ───────────────────────────────────────
 
 async def consume(
     redis_client: aioredis.Redis,
     model: YOLO,
 ) -> None:
-    """Consume FrameEvents continuously."""
 
-    await ensure_consumer_group(redis_client)
+    while not camera_streams:
+        try:
+            await load_camera_assignments()
+
+        except Exception:
+            logger.exception(
+                "camera_registry_discovery_failed"
+            )
+
+        if not camera_streams:
+            logger.warning(
+                "UC1 has no assigned cameras; retrying"
+            )
+            await asyncio.sleep(5)
+
+    await ensure_consumer_groups(redis_client)
 
     logger.info(
-        "uc1_v2_consumer_started "
-        "camera_id=%s stream=%s group=%s consumer=%s",
-        CAMERA_ID,
-        STREAM,
-        GROUP,
-        CONSUMER,
+        "UC1 consumer started streams=%s",
+        list(camera_streams.values()),
     )
 
     while True:
         try:
+
+            streams = {
+                stream: ">"
+                for stream in camera_streams.values()
+            }
+
             messages = await redis_client.xreadgroup(
-                groupname=GROUP,
-                consumername=CONSUMER,
-                streams={
-                    STREAM: ">",
-                },
+                groupname=REDIS_CONSUMER_GROUP,
+                consumername=REDIS_CONSUMER_NAME,
+                streams=streams,
                 count=1,
                 block=5000,
             )
@@ -311,24 +638,48 @@ async def consume(
             if not messages:
                 continue
 
-            for _, entries in messages:
+            for stream_name, entries in messages:
+
+                if isinstance(
+                    stream_name,
+                    bytes,
+                ):
+                    stream_name = (
+                        stream_name.decode()
+                    )
+
                 for message_id, fields in entries:
 
-                    if isinstance(message_id, bytes):
-                        message_id = message_id.decode()
+                    if isinstance(
+                        message_id,
+                        bytes,
+                    ):
+                        message_id = (
+                            message_id.decode()
+                        )
 
-                    decoded_fields = {}
-
-                    for key, value in fields.items():
-                        if isinstance(key, bytes):
-                            key = key.decode()
-
-                        if isinstance(value, bytes):
-                            value = value.decode()
-
-                        decoded_fields[key] = value
+                    decoded_fields = {
+                        (
+                            key.decode()
+                            if isinstance(
+                                key,
+                                bytes,
+                            )
+                            else key
+                        ): (
+                            value.decode()
+                            if isinstance(
+                                value,
+                                bytes,
+                            )
+                            else value
+                        )
+                        for key, value
+                        in fields.items()
+                    }
 
                     try:
+
                         await process_message(
                             redis_client,
                             model,
@@ -337,15 +688,18 @@ async def consume(
                         )
 
                         await redis_client.xack(
-                            STREAM,
-                            GROUP,
+                            stream_name,
+                            REDIS_CONSUMER_GROUP,
                             message_id,
                         )
 
                     except Exception:
+
                         logger.exception(
                             "frame_processing_failed "
+                            "stream=%s "
                             "message_id=%s",
+                            stream_name,
                             message_id,
                         )
 
@@ -353,33 +707,38 @@ async def consume(
             raise
 
         except Exception:
+
             logger.exception(
-                "uc1_v2_consumer_error"
+                "uc1_multi_stream_consumer_failed"
             )
 
             await asyncio.sleep(2)
 
+
+# ─── Application Lifecycle ───────────────────────────────────────
+
 consumer_task: asyncio.Task | None = None
+poller_task: asyncio.Task | None = None
+
 redis_client: aioredis.Redis | None = None
 model: YOLO | None = None
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+
     global consumer_task
+    global poller_task
     global redis_client
     global model
 
     logger.info(
-        "uc1_v2_starting camera_id=%s",
-        CAMERA_ID,
+        "starting UC1-v2"
     )
 
-    logger.info(
-        "loading_yolo_model model=%s",
-        MODEL_PATH,
+    model = YOLO(
+        MODEL_PATH
     )
-
-    model = YOLO(MODEL_PATH)
 
     redis_client = aioredis.from_url(
         REDIS_URL,
@@ -388,9 +747,9 @@ async def lifespan(app: FastAPI):
 
     await redis_client.ping()
 
-    logger.info("redis_connected")
-
-    latest_result["status"] = "running"
+    latest_result[
+        "status"
+    ] = "running"
 
     consumer_task = asyncio.create_task(
         consume(
@@ -399,244 +758,73 @@ async def lifespan(app: FastAPI):
         )
     )
 
+    poller_task = asyncio.create_task(
+        poll_platform_state()
+    )
+
     yield
 
-    if consumer_task:
-        consumer_task.cancel()
+    for task in (
+        consumer_task,
+        poller_task,
+    ):
 
-        try:
-            await consumer_task
-        except asyncio.CancelledError:
-            pass
+        if task:
+            task.cancel()
+
+    for task in (
+        consumer_task,
+        poller_task,
+    ):
+
+        if task:
+
+            try:
+                await task
+
+            except asyncio.CancelledError:
+                pass
 
     if redis_client:
         await redis_client.aclose()
 
+
+# ─── FastAPI ──────────────────────────────────────────────────────
+
 app = FastAPI(
-    title="Innovision UC1-v2",
+    title="Innovision UC1-v2 — Platform Demo",
     lifespan=lifespan,
 )
+
 
 @app.get("/api/latest")
 async def get_latest():
     return latest_result
 
+
+@app.get("/api/pipeline")
+async def get_pipeline():
+    return pipeline_state
+
+
+@app.get("/api/platform")
+async def get_platform():
+    return platform_view
+
+
+@app.get("/api/cameras")
+async def get_cameras():
+    return {
+        "uc": UC_ID,
+        "camera_ids": camera_ids,
+        "streams": camera_streams,
+    }
+
+
 @app.get("/health")
 async def health():
     return {
         "status": "healthy",
-        "camera_id": CAMERA_ID
+        "uc": UC_ID,
+        "camera_ids": camera_ids,
     }
-
-@app.get("/", response_class=HTMLResponse)
-async def dashboard():
-    return """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Innovision UC1</title>
-
-    <style>
-        body {
-            margin: 0;
-            background: #111;
-            color: white;
-            font-family: Arial, sans-serif;
-        }
-
-        .container {
-            width: 700px;
-            margin: 60px auto;
-            padding: 35px;
-            background: #1b1b1b;
-            border-radius: 16px;
-        }
-
-        h1 {
-            text-align: center;
-        }
-
-        .subtitle {
-            text-align: center;
-            color: #aaa;
-            margin-bottom: 40px;
-        }
-
-        .label {
-            text-align: center;
-            color: #999;
-            font-size: 18px;
-        }
-
-        #people {
-            text-align: center;
-            font-size: 110px;
-            font-weight: bold;
-            margin: 15px 0 35px;
-        }
-
-        .stats {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
-        }
-
-        .stat {
-            background: #252525;
-            padding: 18px;
-            border-radius: 10px;
-        }
-
-        .title {
-            color: #888;
-            font-size: 13px;
-        }
-
-        .value {
-            margin-top: 8px;
-            font-size: 19px;
-        }
-
-        #status {
-            color: #4ade80;
-        }
-    </style>
-</head>
-
-<body>
-
-<div class="container">
-
-    <h1>INNOVISION — UC1</h1>
-
-    <div class="subtitle">
-        Redis Frame Ingestion + Person Detection
-    </div>
-
-    <div class="label">
-        PEOPLE DETECTED
-    </div>
-
-    <div id="people">
-        --
-    </div>
-
-    <div class="stats">
-
-        <div class="stat">
-            <div class="title">CAMERA</div>
-            <div id="camera" class="value">--</div>
-        </div>
-
-        <div class="stat">
-            <div class="title">FRAME</div>
-            <div id="frame" class="value">--</div>
-        </div>
-
-        <div class="stat">
-            <div class="title">RESOLUTION</div>
-            <div id="resolution" class="value">--</div>
-        </div>
-
-        <div class="stat">
-            <div class="title">JPEG SIZE</div>
-            <div id="jpeg" class="value">--</div>
-        </div>
-
-        <div class="stat">
-            <div class="title">CACHE</div>
-            <div id="cache" class="value">--</div>
-        </div>
-
-        <div class="stat">
-            <div class="title">CACHE FETCH</div>
-            <div id="fetch" class="value">--</div>
-        </div>
-
-        <div class="stat">
-            <div class="title">YOLO DETECTION</div>
-            <div id="detection" class="value">--</div>
-        </div>
-
-        <div class="stat">
-            <div class="title">FRAMES PROCESSED</div>
-            <div id="processed" class="value">0</div>
-        </div>
-
-        <div class="stat">
-            <div class="title">CACHE MISSES</div>
-            <div id="misses" class="value">0</div>
-        </div>
-
-        <div class="stat">
-            <div class="title">STATUS</div>
-            <div id="status" class="value">STARTING</div>
-        </div>
-
-    </div>
-
-</div>
-
-<script>
-
-async function update() {
-
-    try {
-
-        const response = await fetch("/api/latest");
-        const data = await response.json();
-
-        document.getElementById("people").innerText =
-            data.people ?? "--";
-
-        document.getElementById("camera").innerText =
-            data.camera_id ?? "--";
-
-        document.getElementById("frame").innerText =
-            data.frame_seq ?? "--";
-
-        document.getElementById("resolution").innerText =
-            data.resolution ?? "--";
-
-        document.getElementById("jpeg").innerText =
-            data.jpeg_bytes
-                ? data.jpeg_bytes.toLocaleString() + " bytes"
-                : "--";
-
-        document.getElementById("cache").innerText =
-            data.cache ?? "--";
-
-        document.getElementById("fetch").innerText =
-            data.cache_fetch_ms != null
-                ? data.cache_fetch_ms + " ms"
-                : "--";
-
-        document.getElementById("detection").innerText =
-            data.detection_ms != null
-                ? data.detection_ms + " ms"
-                : "--";
-
-        document.getElementById("processed").innerText =
-            data.frames_processed ?? 0;
-
-        document.getElementById("misses").innerText =
-            data.cache_misses ?? 0;
-
-        document.getElementById("status").innerText =
-            (data.status ?? "unknown").toUpperCase();
-
-    } catch (error) {
-
-        document.getElementById("status").innerText =
-            "DISCONNECTED";
-    }
-}
-
-update();
-setInterval(update, 500);
-
-</script>
-
-</body>
-</html>
-"""

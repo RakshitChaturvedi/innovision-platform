@@ -1,10 +1,15 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 
-COPY shared/ ./shared/
-COPY services/alert_management/main.py ./main.py
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
 
-RUN pip install pydantic pydantic-settings fastapi uvicorn sqlalchemy asyncpg redis --no-cache-dir
+COPY services/alert_management/requirements.txt /tmp/requirements.txt
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8010"]
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+
+COPY . .
+
+CMD ["uvicorn", "services.alert_management.main:app", "--host", "0.0.0.0", "--port", "8000"]

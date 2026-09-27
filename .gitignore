@@ -218,3 +218,8 @@ __marimo__/
 .streamlit/secrets.toml
 .DS_Store
 .DS_Store
+
+./migrations/env.py
+.env
+.env.local
+.env.*.local

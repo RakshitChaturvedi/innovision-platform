@@ -5,8 +5,14 @@ import asyncpg
 import redis.asyncio as aioredis
 import httpx
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 DATABASE_URL = os.environ.get("DATABASE_URL", "").replace("+asyncpg", "")
-REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
+DATABASE_URL = DATABASE_URL.replace("@postgres:", "@localhost:")
+
+REDIS_URL = os.environ.get("REDIS_LOCAL_URL", "redis://localhost:6379")
 ALERT_MGMT_URL = os.environ.get("ALERT_MGMT_URL", "http://localhost:8010")
 
 EXPECTED_UCS = {"uc1", "uc2", "uc3", "uc4"}

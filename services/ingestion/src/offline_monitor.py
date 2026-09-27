@@ -44,6 +44,7 @@ class OfflineMonitor:
             await pubsub.aclose()
 
             logger.info("offline_monitor_stopped")
+
     async def _consume_heartbeats(self, pubsub) -> None:
         try:
             async for message in pubsub.listen():
@@ -53,23 +54,63 @@ class OfflineMonitor:
                 channel = message["channel"]
                 if isinstance(channel, bytes):
                     channel = channel.decode()
-                camera_id = channel.rsplit(":",1)[-1]
 
-                self._last_heartbeat[camera_id] = (asyncio.get_running_loop().time())
+                camera_id = channel.rsplit(":", 1)[-1]
 
-                if camera_id in self._offline_cameras:
-                    self._offline_cameras.remove(camera_id)
-                    logger.info("camera_back_online camera_id=%s", camera_id)
+                is_first_heartbeat = camera_id not in self._last_heartbeat
+
+                self._last_heartbeat[camera_id] = (
+                    asyncio.get_running_loop().time()
+                )
+
+                if is_first_heartbeat:
+                    logger.info(
+                        "camera_online_initial camera_id=%s",
+                        camera_id,
+                    )
 
                     try:
-                        await self._registry_client.update_status(camera_id, "online")
-                    except Exception as e:
-                        logger.error("camera_online_status_update_failed camera_id=%s, error=%s",
-                                     camera_id, e)
+                        await self._registry_client.update_status(
+                            camera_id,
+                            "online",
+                        )
+                    except Exception as exc:
+                        logger.error(
+                            "camera_initial_online_status_update_failed "
+                            "camera_id=%s error=%s",
+                            camera_id,
+                            exc,
+                        )
+
+                elif camera_id in self._offline_cameras:
+                    self._offline_cameras.remove(camera_id)
+
+                    logger.info(
+                        "camera_back_online camera_id=%s",
+                        camera_id,
+                    )
+
+                    try:
+                        await self._registry_client.update_status(
+                            camera_id,
+                            "online",
+                        )
+                    except Exception as exc:
+                        logger.error(
+                            "camera_online_status_update_failed "
+                            "camera_id=%s error=%s",
+                            camera_id,
+                            exc,
+                        )
+
         except asyncio.CancelledError:
             raise
-        except Exception as e:
-            logger.error("heartbeat_consumer_failed error=%s", e)
+
+        except Exception as exc:
+            logger.error(
+                "heartbeat_consumer_failed error=%s",
+                exc,
+            )
             raise
 
     async def _check_timeouts(self) -> None:
