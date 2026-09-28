@@ -685,7 +685,7 @@ p {
 .status-online {
   color: var(--success);
   background: var(--success-bg);
-  border-color: rgba(74, 222, 128, 0.2);
+  border-color: rgba(70, 189, 146, 0.2);
 }
 
 .status-online .status-dot {
