@@ -12,11 +12,11 @@ import { Incidents } from "@/pages/Incidents";
 import { Reports } from "@/pages/Reports";
 import { Compliance } from "@/pages/Compliance";
 
-import { Cameras } from "@/pages/admin/Cameras";
 import { Users } from "@/pages/admin/Users";
 
 import { ProtectedRoute } from "./ProtectedRoute";
 import { RoleRoute } from "./RoleRoute";
+import CameraAdministration from "@/pages/admin/CameraAdministration";
 
 export function AppRoutes() {
   return (
@@ -47,7 +47,7 @@ export function AppRoutes() {
             <Route element={<RoleRoute minimumRole="admin" />}>
               <Route
                 path="/admin/cameras"
-                element={<Cameras />}
+                element={<CameraAdministration />}
               />
 
               <Route
