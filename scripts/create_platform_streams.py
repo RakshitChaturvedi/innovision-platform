@@ -28,5 +28,5 @@ if __name__ == "__main__":
     import os
     from dotenv import load_dotenv
     load_dotenv()
-    redis_url = os.environ.get("REDIS_LOCAL_URL", "redis://localhost:6378")
+    redis_url = os.environ.get("REDIS_LOCAL_URL", "redis://localhost:6379")
     create_platform_streams(redis_url)

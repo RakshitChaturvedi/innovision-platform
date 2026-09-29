@@ -9,14 +9,15 @@ from alembic import context
 
 from shared.database.base import Base
 
-load_dotenv(os.path.join(os.path.dirname(__file__), "../.env"))
+load_dotenv(os.path.join(os.path.dirname(__file__), "../.env"), override=True)
 config = context.config
 
 database_url = os.getenv("DATABASE_URL")
 if database_url:
     if "@postgres:5432" in database_url:
-        database_url = database_url.replace("@postgres:5432", "@localhost:5432")
+        database_url = database_url.replace("@postgres:5432", "@localhost:5433")
     config.set_main_option("sqlalchemy.url", database_url)
+    print(f"[Alembic] Connecting to DB at: {database_url.split('@')[-1] if '@' in database_url else database_url}")
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 

@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "").replace("+asyncpg", "")
-DATABASE_URL = DATABASE_URL.replace("@postgres:", "@localhost:")
+DATABASE_URL = DATABASE_URL.replace("@postgres:5432", "@localhost:5433").replace("@postgres:", "@localhost:5433")
 
 REDIS_URL = os.environ.get("REDIS_LOCAL_URL", "redis://localhost:6379")
 ALERT_MGMT_URL = os.environ.get("ALERT_MGMT_URL", "http://localhost:8010")

@@ -1,4 +1,9 @@
-import asyncio, os, uuid
+import asyncio
+import os
+import sys
+import uuid
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from dotenv import load_dotenv
 from sqlalchemy import text
@@ -7,9 +12,7 @@ from services.auth.src.jwt import hash_password
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL_LOCAL")
-if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL is not set")
+DATABASE_URL = os.getenv("DATABASE_URL_LOCAL") or os.getenv("DATABASE_URL", "").replace("@postgres:5432", "@localhost:5433").replace("@postgres:", "@localhost:5433")
 
 DEV_PASSWORD = "admin123"
 
@@ -27,7 +30,7 @@ CAMERAS = [
         "name": "Test Camera UC2",
         "location": "Development",
         "video_path": "/app/test_data/videos/uc2.mp4",
-        "use_cases": ["uc1"],
+        "use_cases": ["uc2"],
         "fps": 10,
     },
     {
@@ -35,7 +38,7 @@ CAMERAS = [
         "name": "Test Camera UC3",
         "location": "Development",
         "video_path": "/app/test_data/videos/uc3.mp4",
-        "use_cases": ["uc1"],
+        "use_cases": ["uc3"],
         "fps": 10,
     },
     {
@@ -43,7 +46,7 @@ CAMERAS = [
         "name": "Test Camera UC4",
         "location": "Development",
         "video_path": "/app/test_data/videos/uc4.mp4",
-        "use_cases": ["uc1"],
+        "use_cases": ["uc4"],
         "fps": 10,
     },
 ]
@@ -103,12 +106,13 @@ async def seed_cameras(session):
                 INSERT INTO cameras
                     (id, name, location, rtsp_url, status, use_cases, fps)
                 VALUES
-                    (:id, :name, :location, :video_path, 'offline', :use_cases, :fps)
+                    (:id, :name, :location, :video_path, 'online', :use_cases, :fps)
                 ON CONFLICT (id)
                 DO UPDATE SET
                     name = EXCLUDED.name,
                     location = EXCLUDED.location,
                     rtsp_url = EXCLUDED.rtsp_url,
+                    status = 'online',
                     use_cases = EXCLUDED.use_cases,
                     fps = EXCLUDED.fps,
                     updated_at = now()

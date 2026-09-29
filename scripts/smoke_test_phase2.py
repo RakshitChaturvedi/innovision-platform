@@ -27,10 +27,13 @@ from uuid import UUID
 
 import redis.asyncio as aioredis
 from minio import Minio
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # ── Configuration ─────────────────────────────────────────────────────────
 
-REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
+REDIS_URL = os.environ.get("REDIS_LOCAL_URL", os.environ.get("REDIS_URL", "redis://localhost:6379"))
 MINIO_ENDPOINT = os.environ.get("MINIO_HOST_ENDPOINT", "localhost:9000")
 MINIO_ACCESS_KEY = os.environ.get("MINIO_ACCESS_KEY", "minioadmin")
 MINIO_SECRET_KEY = os.environ.get("MINIO_SECRET_KEY", "changeme")
