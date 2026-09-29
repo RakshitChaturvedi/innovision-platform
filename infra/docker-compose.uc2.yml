@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  uc2_fire_smoke:
+    build:
+      context: ..
+      dockerfile: services/uc2_fire_smoke/Dockerfile
+    container_name: innovision-uc2-fire-smoke
+    ports:
+      - "8030:8030"
+    environment:
+      - UC2_PORT=8030
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - CAMERA_REGISTRY_URL=http://camera_registry:8011
+      - UC2_STREAM_GROUP=uc2_fire_smoke_cg
+      - UC2_FRAMES_BUCKET=innovision-frames
+      - UC2_EVIDENCE_BUCKET=innovision-evidence
+      - UC2_CONF_THRESHOLD=0.20
+      - UC2_TEMPORAL_FRAMES=3
+      - UC2_ALERT_COOLDOWN_S=30
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      camera_registry:
+        condition: service_started
+      ingestion:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8030/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+    networks:
+      - innovision-net
+
+networks:
+  innovision-net:
+    external: true
