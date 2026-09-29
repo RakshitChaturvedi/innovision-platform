@@ -9,4 +9,14 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  server: {
+    proxy: {
+      "/auth":      "http://localhost:8000",
+      "/cameras":   "http://localhost:8011",
+      "/alerts":    "http://localhost:8010",
+      "/incidents": "http://localhost:8003",
+      "/reports":   "http://localhost:8016",
+      "/audit":     "http://localhost:8002",
+    },
+  },
 });
