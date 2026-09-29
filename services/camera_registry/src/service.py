@@ -33,7 +33,9 @@ class CameraRegistryService:
                 })
         await self._redis.publish(f"camera:added:{camera_id}", camera_id)
         logger.info("camera_created id=%s name=%s use_cases=%s", camera_id, data.name, data.use_cases)
-        return {"id": camera_id, **data.model_dump()}
+        camera = await self.get_camera(camera_id)
+        assert camera is not None, "just-inserted camera not found"
+        return camera
 
     async def update_config(self, camera_id: str, data: CameraConfigUpdate) -> None:
         updates = {k: v for k, v in data.model_dump().items() if v is not None}
@@ -69,14 +71,12 @@ class CameraRegistryService:
             return [str(r.id) for r in rows.fetchall()]
 
     async def get_active_cameras(self) -> list[dict]:
-        # used by ingestion service on startup to know what to connect to
         async with self._session_factory() as session:
-            rows = await session.execute(
-                text("""
-                    SELECT id, name, location, rtsp_url, status, fps, use_cases
-                    FROM cameras
-                    WHERE status != 'disabled'
-                """))
+            rows = await session.execute(text("""
+                SELECT id, name, location, rtsp_url, status, fps, use_cases, created_at
+                FROM cameras
+                WHERE status != 'disabled'
+            """))
             return [dict(r._mapping) for r in rows.fetchall()]
 
     async def update_status(self, camera_id: str, status: str) -> None:
@@ -88,19 +88,13 @@ class CameraRegistryService:
 
     async def get_camera(self, camera_id: str) -> dict | None:
         async with self._session_factory() as session:
-            row = await session.execute(
-                text("""
-                    SELECT id, name, location, rtsp_url, status, fps, use_cases
-                    FROM cameras
-                    WHERE id = :id
-                    AND status != 'disabled'
-                """),
-                {"id": camera_id},
-            )
-
+            row = await session.execute(text("""
+                SELECT id, name, location, rtsp_url, status, fps, use_cases, created_at
+                FROM cameras
+                WHERE id = :id
+                AND status != 'disabled'
+            """), {"id": camera_id})
             camera = row.fetchone()
-
             if not camera:
                 return None
-
             return dict(camera._mapping)

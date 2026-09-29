@@ -74,6 +74,9 @@ class CameraIngestionTask:
             await self._stop_decoder()
             logger.info("camera_task_stopped camera_id=%s", self.camera_id)
 
+    async def _next_frame_seq(self) -> int:
+        return int(await self._redis.incr(f"ingestion:seq:{self.camera_id}"))
+
     async def _ingest_once(self) -> None:
         # connect to cam and process frames
 
@@ -95,7 +98,7 @@ class CameraIngestionTask:
                 if not sampler.should_sample():
                     continue
 
-                self._frame_seq = sampler.frame_seq
+                self._frame_seq = await self._next_frame_seq()
                 await self._process_frame(frame=frame,frame_seq=self._frame_seq, encoder=JpegEncoder(quality=settings.jpeg_quality))
         finally:
             await decoder.stop()
@@ -125,14 +128,9 @@ class CameraIngestionTask:
                 "frame_cache_failed camera_id=%s frame_seq=%d error=%s",
                 self.camera_id, frame_seq, e)
             return
-
+        
         # 3. minio
-        try:
-            await self._frame_store.upload(object_key, jpeg_bytes)
-        except Exception as e:
-            logger.error("frame_store_failed camera_id=%s frame_seq=%d error=%s", 
-                         self.camera_id, frame_seq, e)
-            return
+        self._frame_store.upload_background(object_key, jpeg_bytes)
 
         # 4. publish frame event
         try:

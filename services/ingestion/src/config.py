@@ -42,4 +42,6 @@ class IngestionConfig(BaseSettings):
     minio_frames_bucket: str = "innovision-frames"
     minio_secure: bool = False
 
+    internal_service_token: str = Field(default="", alias="INTERNAL_SERVICE_TOKEN")
+
 settings = IngestionConfig()

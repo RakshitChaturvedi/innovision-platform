@@ -10,5 +10,6 @@ class AuthSettings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = Field(default=15, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
     refresh_token_expire_days: int = Field(default=7, alias="REFRESH_TOKEN_EXPIRE_DATS")
+    internal_service_token: str = Field(default="", alias="INTERNAL_SERVICE_TOKEN")
 
 settings = AuthSettings()

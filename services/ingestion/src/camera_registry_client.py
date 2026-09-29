@@ -16,12 +16,13 @@ class CameraRegistryClient:
         self._base_url = settings.camera_registry_url.rstrip("/")
         self._client = httpx.AsyncClient(
             base_url=self._base_url,
-            timeout=httpx.Timeout(connect=5.0, read=10.0, write=10.0, pool=5.0)
+            timeout=httpx.Timeout(connect=5.0, read=10.0, write=10.0, pool=5.0),
+            headers={"X-Service-Token": settings.internal_service_token},
         )
 
     async def get_active_cameras(self) -> list[dict[str, Any]]:
         try:
-            response = await self._client.get("/cameras")
+            response = await self._client.get("/cameras/internal/active")
             response.raise_for_status()
             data = response.json()
 

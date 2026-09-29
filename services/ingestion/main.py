@@ -87,7 +87,7 @@ async def lifespan(app: FastAPI):
     # 3. Frame Infra
     frame_publisher = FramePublisher(redis_client=redis_client)
     frame_cache = FrameCache(redis_client=redis_client)
-    frame_store = FrameStore()
+    frame_store = FrameStore(bucket=settings.minio_frames_bucket)
 
     # 4. Camera manager
     camera_manager = CameraManager(

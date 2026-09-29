@@ -15,6 +15,7 @@ class CameraCreate(BaseModel):
 class CameraConfigUpdate(BaseModel):
     use_cases: Optional[list[str]] = None
     fps: Optional[int] = None
+    rtsp_url: Optional[str] = None
 
 class CameraResponse(BaseModel):
     id: UUID
@@ -27,3 +28,7 @@ class CameraResponse(BaseModel):
 
 class CameraStatusUpdate(BaseModel):
     status: CameraStatus
+
+class CameraInternalResponse(CameraResponse):
+    # only for service-to-service calls.
+    rtsp_url: Optional[str]= None
