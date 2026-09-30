@@ -17,22 +17,20 @@ export async function getAlertStatusCounts(): Promise<AlertStatusCounts> {
 }
 
 export interface AlertFilters {
-  cameraId?: string;
-  ucId?: string;
+  camera_id?: string;
+  source_uc?: string;
   severity?: string;
   status?: string;
 }
 
 export async function getAlerts(
   filters?: AlertFilters,
+  limit = 50,
+  offset = 0,
 ): Promise<Alert[]> {
-  console.log("[API] GET /alerts", filters);
-
   const { data } = await alertClient.get<Alert[]>("/alerts", {
-    params: filters,
+    params: { ...filters, limit, offset },
   });
-
-  console.log("[API] /alerts response:", data);
 
   return data;
 }

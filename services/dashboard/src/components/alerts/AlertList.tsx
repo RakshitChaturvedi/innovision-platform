@@ -69,6 +69,7 @@ export default function AlertList({
   } = useQuery({
     queryKey: ["alerts", filters],
     queryFn: () => getAlerts(filters),
+    refetchInterval: 5000,
   });
 
   const queryClient = useQueryClient();

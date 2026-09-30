@@ -18,6 +18,7 @@ export default defineConfig({
       "/audit":         "http://localhost:80",
       "/notifications": "http://localhost:80",
       "/ingestion":      "http://localhost:80",
+      "/uc3": "http://localhost:80",
     },
   },
 });

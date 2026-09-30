@@ -50,10 +50,10 @@ export default function Alerts() {
             id="camera-filter"
             type="text"
             placeholder="Camera ID"
-            value={filters.cameraId ?? ""}
+            value={filters.camera_id ?? ""}
             onChange={(event) =>
               updateFilter(
-                "cameraId",
+                "camera_id",
                 event.target.value,
               )
             }
@@ -67,10 +67,10 @@ export default function Alerts() {
 
           <select
             id="uc-filter"
-            value={filters.ucId ?? ""}
+            value={filters.source_uc ?? ""}
             onChange={(event) =>
               updateFilter(
-                "ucId",
+                "source_uc",
                 event.target.value,
               )
             }
