@@ -79,6 +79,21 @@ class CameraRegistryService:
                 """))
             return [dict(r._mapping) for r in rows.fetchall()]
 
+    async def get_camera(self, camera_id: str) -> dict | None:
+        async with self._session_factory() as session:
+            rows = await session.execute(
+                text("""
+                    SELECT id, name, rtsp_url, fps, use_cases, status
+                    FROM cameras
+                    WHERE id = :camera_id AND status != 'disabled'
+                """),
+                {"camera_id": camera_id}
+            )
+            r = rows.fetchone()
+            if not r:
+                return None
+            return dict(r._mapping)
+
     async def update_status(self, camera_id: str, status: str) -> None:
         async with self._session_factory() as session:
             async with session.begin():

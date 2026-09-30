@@ -73,6 +73,7 @@ class CameraWorker:
         )
 
         self._running = False
+        self._paused = False
         self._task: Optional[asyncio.Task] = None
         self._prev_frame: Optional[np.ndarray] = None
         self._latest_annotated_jpeg: Optional[bytes] = None
@@ -82,9 +83,36 @@ class CameraWorker:
         self.current_fps = 0.0
         self.last_seen_timestamp = time.time()
 
+    def pause(self) -> None:
+        """Pause frame processing."""
+        self._paused = True
+        logger.info(f"CameraWorker paused for camera {self.camera_id}")
+
+    def resume(self) -> None:
+        """Resume frame processing."""
+        self._paused = False
+        logger.info(f"CameraWorker resumed for camera {self.camera_id}")
+
+    @property
+    def is_paused(self) -> bool:
+        return self._paused
+
     def get_latest_preview_jpeg(self) -> Optional[bytes]:
         """Return the most recent annotated JPEG frame for MJPEG streaming."""
-        return self._latest_annotated_jpeg
+        if self._latest_annotated_jpeg is not None:
+            return self._latest_annotated_jpeg
+
+        # Generate a clean standby HUD frame while waiting for initial frames
+        canvas = np.full((480, 640, 3), 25, dtype=np.uint8)
+        cv2.rectangle(canvas, (10, 10), (630, 470), (50, 50, 50), 2)
+        cv2.putText(canvas, "UC2 FIRE & SMOKE ANALYTICS", (40, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 140, 255), 2, cv2.LINE_AA)
+        cv2.putText(canvas, f"Camera: {self.camera_name}", (40, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (220, 220, 220), 1, cv2.LINE_AA)
+        cv2.putText(canvas, f"ID: {self.camera_id}", (40, 155), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (160, 160, 160), 1, cv2.LINE_AA)
+        cv2.putText(canvas, f"Status: LISTENING ON STREAM frames:{self.camera_id}", (40, 200), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 120), 1, cv2.LINE_AA)
+        cv2.putText(canvas, f"Mode: {settings.detection_mode} | Model: {settings.model_version}", (40, 240), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (180, 180, 180), 1, cv2.LINE_AA)
+        cv2.putText(canvas, "Waiting for Ingestion frames...", (40, 300), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1, cv2.LINE_AA)
+        _, encoded = cv2.imencode(".jpg", canvas, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+        return encoded.tobytes()
 
     async def start(self) -> None:
         """Start the worker processing loop in the background."""
@@ -109,6 +137,9 @@ class CameraWorker:
         logger.info(f"Entering frame consumption loop for camera {self.camera_id}")
 
         while self._running:
+            if self._paused:
+                await asyncio.sleep(0.5)
+                continue
             try:
                 # Read frames in non-blocking batches
                 async for msg_id, frame_event, frame_img in self.consumer.read_frames(
@@ -193,26 +224,31 @@ class CameraWorker:
 
         # Draw confirmed detections
         colors = {
-            "fire": (0, 30, 255),
-            "smoke": (0, 140, 255),
-            "sparks": (0, 215, 255),
+            "fire": (0, 30, 255),      # Red/Orange
+            "smoke": (0, 140, 255),    # Orange/Amber
+            "sparks": (0, 215, 255),   # Yellow
             "spark": (0, 215, 255),
         }
         for det in result.confirmed_detections:
             color = colors.get(det.detection_type, (0, 255, 255))
             bx = det.bbox
             x1, y1, x2, y2 = bx["x1"], bx["y1"], bx["x2"], bx["y2"]
-            cv2.rectangle(vis, (x1, y1), (x2, y2), color, 2)
+            cv2.rectangle(vis, (x1, y1), (x2, y2), color, 3)
 
-            label = f"{det.detection_type.upper()} {det.final_confidence:.2f} [{det.zone.zone_name}]"
+            label = f"{det.detection_type.upper()} {det.final_confidence * 100:.0f}% [{det.zone.zone_name}]"
+            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 2)
+            cv2.rectangle(vis, (x1, max(0, y1 - 24)), (x1 + tw + 8, max(24, y1)), color, -1)
             cv2.putText(
-                vis, label, (x1, max(20, y1 - 8)),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2, cv2.LINE_AA,
+                vis, label, (x1 + 4, max(18, y1 - 6)),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2, cv2.LINE_AA,
             )
 
         # Draw HUD bar at top
-        hud_text = f"UC2 FIRE & SMOKE | Cam: {self.camera_name} | FPS: {self.current_fps} | Seq: {result.frame_seq}"
-        cv2.putText(vis, hud_text, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2, cv2.LINE_AA)
+        hud_bg = vis[:32, :].copy()
+        cv2.rectangle(vis, (0, 0), (w, 32), (20, 20, 20), -1)
+        vis[:32, :] = cv2.addWeighted(hud_bg, 0.3, vis[:32, :], 0.7, 0)
+        hud_text = f"UC2 FIRE & SMOKE | Cam: {self.camera_name} | FPS: {self.current_fps:.1f} | Seq: {result.frame_seq} | Alerts: {len(result.confirmed_detections)}"
+        cv2.putText(vis, hud_text, (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (0, 255, 120), 2, cv2.LINE_AA)
 
         return vis
 

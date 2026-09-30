@@ -15,6 +15,10 @@ class CameraCreate(BaseModel):
 class CameraConfigUpdate(BaseModel):
     use_cases: Optional[list[str]] = None
     fps: Optional[int] = None
+    rtsp_url: Optional[str] = None
+
+class CameraStatusUpdate(BaseModel):
+    status: str
 
 class CameraResponse(BaseModel):
     id: UUID

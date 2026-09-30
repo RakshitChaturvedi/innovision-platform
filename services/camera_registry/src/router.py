@@ -26,6 +26,29 @@ async def update_config(
     await service.update_config(camera_id, body)
     return {"status": "updated"}
 
+@router.get("/{camera_id}")
+async def get_camera(camera_id: str, service: CameraRegistryService = Depends(get_service)):
+    cam = await service.get_camera(camera_id)
+    if not cam:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    return cam
+
+@router.put("/{camera_id}/status")
+async def update_status(
+    camera_id: str,
+    body: CameraStatusUpdate,
+    service: CameraRegistryService = Depends(get_service)
+):
+    await service.update_status(camera_id, body.status)
+    return {"status": "updated"}
+
+@router.get("/{camera_id}/status")
+async def get_status(camera_id: str, service: CameraRegistryService = Depends(get_service)):
+    cam = await service.get_camera(camera_id)
+    if not cam:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    return {"camera_id": camera_id, "status": cam.get("status", "unknown")}
+
 @router.delete("/{camera_id}", status_code=204, dependencies=[Depends(require_role(Role.SUPERADMIN))])
 async def delete_camera(
     camera_id: str,
@@ -37,33 +60,4 @@ async def delete_camera(
 async def cameras_for_uc(uc_id: str, service: CameraRegistryService = Depends(get_service)):
     # internal endpoint. uc analytics services call on startup
     camera_ids = await service.get_cameras_for_uc(uc_id)
-    return {"uc_id": uc_id, "camera_ids": camera_ids}
-
-@router.get("/{camera_id}/status")
-async def get_status(
-    camera_id: str,
-    service: CameraRegistryService = Depends(get_service),
-):
-    camera = await service.get_camera(camera_id)
-
-    if not camera:
-        raise HTTPException(status_code=404)
-
-    return {
-        "camera_id": camera_id,
-        "status": camera["status"],
-        "use_cases": camera["use_cases"],
-    }
-
-@router.patch("/{camera_id}/status")
-async def update_status(
-    camera_id: str,
-    body: CameraStatusUpdate,
-    service: CameraRegistryService = Depends(get_service),
-):
-    await service.update_status(camera_id, body.status)
-
-    return {
-        "camera_id": camera_id,
-        "status": body.status,
-    }
+    return {"uc_id": uc_id, "camera_ids": camera_ids}

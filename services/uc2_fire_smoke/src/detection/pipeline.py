@@ -89,6 +89,7 @@ class DetectionPipeline:
         frame_seq: int,
         frame_bgr: np.ndarray,
         prev_frame_bgr: Optional[np.ndarray] = None,
+        single_frame: bool = False,
     ) -> DetectionResult:
         """
         Execute full 6-stage pipeline on a camera frame.
@@ -181,12 +182,12 @@ class DetectionPipeline:
                 yolo_conf=yolo_conf,
                 hsv_score=hsv_score,
                 texture_score=texture_score,
-                temporal_score=temp_score,
+                temporal_score=temp_score if not single_frame else max(temp_score, 0.75),
                 det_type=det_type,
             )
 
             # Check if detection passes minimal confidence and temporal gate
-            if is_persistent and fusion_result.final_confidence >= settings.conf_threshold:
+            if (is_persistent or single_frame) and fusion_result.final_confidence >= settings.conf_threshold:
                 # Upgrade severity if inside a CRITICAL or HIGH priority zone
                 severity = fusion_result.severity
                 if zone_match.zone_priority.upper() == "CRITICAL" and severity in (

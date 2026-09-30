@@ -2,9 +2,20 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY shared/ ./shared/
-RUN pip install pydantic pydantic-settings redis --no-cache-dir
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
+    libglib2.0-0 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
-COPY stubs/uc2_stub/ ./stubs/uc2_stub/
+COPY services/uc2_fire_smoke/requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
 
-CMD ["python", "stubs/uc2_stub/main.py"]
+COPY shared/ /app/shared/
+COPY services/uc2_fire_smoke/ /app/services/uc2_fire_smoke/
+COPY stubs/uc2_stub/ /app/stubs/uc2_stub/
+
+ENV PYTHONPATH=/app \
+    PYTHONUNBUFFERED=1
+
+CMD ["uvicorn", "services.uc2_fire_smoke.src.main:app", "--host", "0.0.0.0", "--port", "8030"]

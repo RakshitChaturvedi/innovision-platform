@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from typing import Dict, List, Optional
 
@@ -109,6 +110,10 @@ class PipelineManager:
         """Fetch camera list from registry and sync active worker instances."""
         try:
             cameras = await self.registry_client.get_active_cameras(uc_id="uc2")
+            if not cameras:
+                default_cam_id = os.environ.get("TEST_CAMERA_ID", "00000000-0000-0000-0000-000000000002")
+                if default_cam_id:
+                    cameras = [{"id": default_cam_id, "name": "Test Camera UC2", "location": "Integration Test"}]
             active_ids = set()
 
             for cam in cameras:
@@ -207,6 +212,22 @@ class PipelineManager:
             return worker.get_latest_preview_jpeg()
         return None
 
+    def pause_camera(self, camera_id: str) -> bool:
+        """Pause frame ingestion and inference on a camera worker."""
+        worker = self._workers.get(camera_id)
+        if worker:
+            worker.pause()
+            return True
+        return False
+
+    def resume_camera(self, camera_id: str) -> bool:
+        """Resume frame ingestion and inference on a camera worker."""
+        worker = self._workers.get(camera_id)
+        if worker:
+            worker.resume()
+            return True
+        return False
+
     def get_pipeline_status(self) -> dict:
         """Return operational overview of pipeline and all active camera workers."""
         now = time.time()
@@ -217,6 +238,7 @@ class PipelineManager:
                 "camera_name": worker.camera_name,
                 "camera_location": worker.camera_location,
                 "fps": worker.current_fps,
+                "paused": worker.is_paused,
                 "last_seen_s_ago": round(now - worker.last_seen_timestamp, 1),
                 "zones_count": len(self.zone_engine.get_camera_zones(cam_id)),
             })

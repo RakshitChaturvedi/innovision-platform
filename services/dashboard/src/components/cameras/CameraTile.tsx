@@ -62,6 +62,7 @@ export default function CameraTile({
             cameraId={camera.id}
             cameraName={camera.name}
             isOnline={camera.status === "online"}
+            useCases={camera.use_cases}
           />
         </div>
 
