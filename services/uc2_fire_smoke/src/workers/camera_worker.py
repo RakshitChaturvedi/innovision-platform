@@ -10,8 +10,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import datetime, timezone
-from uuid import UUID
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
@@ -43,9 +41,23 @@ from services.uc2_fire_smoke.src.storage.minio_client import MinIOClient
 logger = logging.getLogger("innovision.uc2.camera_worker")
 
 
+from collections import deque
+from enum import Enum
+
+
+class CameraHealthState(str, Enum):
+    """Production health state of a camera stream."""
+    ONLINE = "online"
+    DEGRADED = "degraded"
+    RECONNECTING = "reconnecting"
+    OFFLINE = "offline"
+    ERROR = "error"
+
+
 class CameraWorker:
     """
-    Independent worker instance for a single camera feed.
+    Independent worker instance for a single camera feed with
+    resilient state machine, evidence buffer, and metric telemetry.
     """
 
     def __init__(
@@ -68,12 +80,11 @@ class CameraWorker:
 
         self.consumer = RedisFrameConsumer(
             redis_client=self.redis,
-            camera_id=UUID(str(self.camera_id)) if not isinstance(self.camera_id, UUID) else self.camera_id,
+            camera_id=self.camera_id,
             minio_client=self.minio,
         )
 
         self._running = False
-        self._paused = False
         self._task: Optional[asyncio.Task] = None
         self._prev_frame: Optional[np.ndarray] = None
         self._latest_annotated_jpeg: Optional[bytes] = None
@@ -82,37 +93,72 @@ class CameraWorker:
         self._fps_timer = time.time()
         self.current_fps = 0.0
         self.last_seen_timestamp = time.time()
+        self.last_successful_frame_ts = time.time()
+
+        # Production health & telemetry counters
+        self.state = CameraHealthState.ONLINE
+        self.received_frames = 0
+        self.processed_frames = 0
+        self.skipped_frames = 0
+        self.dropped_frames = 0
+        self.reconnect_count = 0
+        self.is_paused = False
+        self.last_error_message = ""
+
+        self.current_frame_age_ms = 0.0
+        self.active_hazards: List[str] = []
+        self._frame_buffer: deque = deque(maxlen=settings.evidence_buffer_size)
 
     def pause(self) -> None:
-        """Pause frame processing."""
-        self._paused = True
-        logger.info(f"CameraWorker paused for camera {self.camera_id}")
+        """Pause worker processing on camera disconnect/maintenance."""
+        self.is_paused = True
+        self.state = CameraHealthState.RECONNECTING
 
     def resume(self) -> None:
-        """Resume frame processing."""
-        self._paused = False
-        logger.info(f"CameraWorker resumed for camera {self.camera_id}")
+        """Resume worker processing after reconnect."""
+        self.is_paused = False
+        self.state = CameraHealthState.ONLINE
 
-    @property
-    def is_paused(self) -> bool:
-        return self._paused
+    def get_health_state(self) -> CameraHealthState:
+        """Determine real-time camera health state based on elapsed heartbeat."""
+        if not self._running:
+            return CameraHealthState.OFFLINE
+        if self.is_paused:
+            return CameraHealthState.RECONNECTING
+        if self.last_error_message:
+            return CameraHealthState.ERROR
+        elapsed = time.time() - self.last_seen_timestamp
+        if elapsed > settings.camera_stale_threshold_s:
+            return CameraHealthState.OFFLINE
+        if elapsed > settings.camera_degraded_threshold_s:
+            return CameraHealthState.DEGRADED
+        return CameraHealthState.ONLINE
+
+
+    def get_diagnostics(self) -> dict:
+        """Export comprehensive diagnostic metrics for dashboard and monitoring."""
+        now = time.time()
+        health = self.get_health_state()
+        return {
+            "camera_id": self.camera_id,
+            "camera_name": self.camera_name,
+            "camera_location": self.camera_location,
+            "status": health.value,
+            "fps": self.current_fps,
+            "received_frames": self.received_frames,
+            "processed_frames": self.processed_frames,
+            "skipped_frames": self.skipped_frames,
+            "dropped_frames": self.dropped_frames,
+            "reconnect_count": self.reconnect_count,
+            "frame_age_ms": round(self.current_frame_age_ms, 2),
+            "last_seen_s_ago": round(now - self.last_seen_timestamp, 1),
+            "active_hazards": list(self.active_hazards),
+            "last_error": self.last_error_message,
+        }
 
     def get_latest_preview_jpeg(self) -> Optional[bytes]:
         """Return the most recent annotated JPEG frame for MJPEG streaming."""
-        if self._latest_annotated_jpeg is not None:
-            return self._latest_annotated_jpeg
-
-        # Generate a clean standby HUD frame while waiting for initial frames
-        canvas = np.full((480, 640, 3), 25, dtype=np.uint8)
-        cv2.rectangle(canvas, (10, 10), (630, 470), (50, 50, 50), 2)
-        cv2.putText(canvas, "UC2 FIRE & SMOKE ANALYTICS", (40, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 140, 255), 2, cv2.LINE_AA)
-        cv2.putText(canvas, f"Camera: {self.camera_name}", (40, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (220, 220, 220), 1, cv2.LINE_AA)
-        cv2.putText(canvas, f"ID: {self.camera_id}", (40, 155), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (160, 160, 160), 1, cv2.LINE_AA)
-        cv2.putText(canvas, f"Status: LISTENING ON STREAM frames:{self.camera_id}", (40, 200), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 120), 1, cv2.LINE_AA)
-        cv2.putText(canvas, f"Mode: {settings.detection_mode} | Model: {settings.model_version}", (40, 240), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (180, 180, 180), 1, cv2.LINE_AA)
-        cv2.putText(canvas, "Waiting for Ingestion frames...", (40, 300), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1, cv2.LINE_AA)
-        _, encoded = cv2.imencode(".jpg", canvas, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
-        return encoded.tobytes()
+        return self._latest_annotated_jpeg
 
     async def start(self) -> None:
         """Start the worker processing loop in the background."""
@@ -137,9 +183,6 @@ class CameraWorker:
         logger.info(f"Entering frame consumption loop for camera {self.camera_id}")
 
         while self._running:
-            if self._paused:
-                await asyncio.sleep(0.5)
-                continue
             try:
                 # Read frames in non-blocking batches
                 async for msg_id, frame_event, frame_img in self.consumer.read_frames(
@@ -150,24 +193,44 @@ class CameraWorker:
                         break
 
                     t_event_start = time.perf_counter()
-                    self.last_seen_timestamp = time.time()
+                    now_ts = time.time()
+                    self.last_seen_timestamp = now_ts
+                    self.received_frames += 1
+                    self.skipped_frames = getattr(self.consumer, "skipped_frames", 0)
+                    self.last_error_message = None
+
+                    # Compute real-time frame age
+                    if getattr(frame_event, "timestamp", None):
+                        try:
+                            ts_sec = frame_event.timestamp.timestamp()
+                            self.current_frame_age_ms = max(0.0, (now_ts - ts_sec) * 1000.0)
+                        except Exception:
+                            self.current_frame_age_ms = 0.0
 
                     if frame_img is None:
+                        self.dropped_frames += 1
                         DROPPED_FRAMES.labels(camera_id=self.camera_id).inc()
                         await self.consumer.ack(msg_id)
                         continue
+
+                    # Maintain rolling frame buffer for pre-event evidence
+                    self._frame_buffer.append((frame_event.frame_seq, frame_img.copy()))
 
                     # Update FPS calculation
                     self._update_fps()
 
                     # Execute 6-stage detection pipeline
                     result: DetectionResult = self.pipeline.process_frame(
-                        camera_id=UUID(str(self.camera_id)) if not isinstance(self.camera_id, UUID) else self.camera_id,
+                        camera_id=self.camera_id,
                         frame_seq=frame_event.frame_seq,
                         frame_bgr=frame_img,
                         prev_frame_bgr=self._prev_frame,
                     )
                     self._prev_frame = frame_img.copy()
+                    self.processed_frames += 1
+
+                    # Update active hazards for real-time camera status
+                    self.active_hazards = {det.detection_type for det in result.confirmed_detections}
 
                     # Record Prometheus metrics
                     FRAMES_PROCESSED.labels(camera_id=self.camera_id).inc()
@@ -180,7 +243,7 @@ class CameraWorker:
 
                     for supp in result.suppressed_detections:
                         FALSE_ALARMS.labels(
-                            camera_id=UUID(str(self.camera_id)) if not isinstance(self.camera_id, UUID) else self.camera_id,
+                            camera_id=self.camera_id,
                             reason=supp.get("reason", "unknown"),
                             detection_type=supp.get("detection_type", "unknown"),
                         ).inc()
@@ -205,6 +268,7 @@ class CameraWorker:
             except asyncio.CancelledError:
                 break
             except Exception as exc:
+                self.last_error_message = str(exc)
                 logger.error(f"Error in CameraWorker loop for {self.camera_id}: {exc}", exc_info=True)
                 await asyncio.sleep(1.0)
 
@@ -224,31 +288,26 @@ class CameraWorker:
 
         # Draw confirmed detections
         colors = {
-            "fire": (0, 30, 255),      # Red/Orange
-            "smoke": (0, 140, 255),    # Orange/Amber
-            "sparks": (0, 215, 255),   # Yellow
+            "fire": (0, 30, 255),
+            "smoke": (0, 140, 255),
+            "sparks": (0, 215, 255),
             "spark": (0, 215, 255),
         }
         for det in result.confirmed_detections:
             color = colors.get(det.detection_type, (0, 255, 255))
             bx = det.bbox
             x1, y1, x2, y2 = bx["x1"], bx["y1"], bx["x2"], bx["y2"]
-            cv2.rectangle(vis, (x1, y1), (x2, y2), color, 3)
+            cv2.rectangle(vis, (x1, y1), (x2, y2), color, 2)
 
-            label = f"{det.detection_type.upper()} {det.final_confidence * 100:.0f}% [{det.zone.zone_name}]"
-            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 2)
-            cv2.rectangle(vis, (x1, max(0, y1 - 24)), (x1 + tw + 8, max(24, y1)), color, -1)
+            label = f"{det.detection_type.upper()} {det.final_confidence:.2f} [{det.zone.zone_name}]"
             cv2.putText(
-                vis, label, (x1 + 4, max(18, y1 - 6)),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2, cv2.LINE_AA,
+                vis, label, (x1, max(20, y1 - 8)),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2, cv2.LINE_AA,
             )
 
         # Draw HUD bar at top
-        hud_bg = vis[:32, :].copy()
-        cv2.rectangle(vis, (0, 0), (w, 32), (20, 20, 20), -1)
-        vis[:32, :] = cv2.addWeighted(hud_bg, 0.3, vis[:32, :], 0.7, 0)
-        hud_text = f"UC2 FIRE & SMOKE | Cam: {self.camera_name} | FPS: {self.current_fps:.1f} | Seq: {result.frame_seq} | Alerts: {len(result.confirmed_detections)}"
-        cv2.putText(vis, hud_text, (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (0, 255, 120), 2, cv2.LINE_AA)
+        hud_text = f"UC2 FIRE & SMOKE | Cam: {self.camera_name} | FPS: {self.current_fps} | Seq: {result.frame_seq}"
+        cv2.putText(vis, hud_text, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2, cv2.LINE_AA)
 
         return vis
 
@@ -259,14 +318,14 @@ class CameraWorker:
         annotated_image: np.ndarray,
         t_start: float,
     ) -> None:
-        """Evaluate cooldown, upload evidence, and publish AlertEvent."""
+        """Evaluate cooldown, upload evidence with retry resilience, and publish AlertEvent."""
         now = time.time()
 
         for det in result.confirmed_detections:
             if det.detection_type == "fire":
-                FIRE_DETECTIONS.labels(camera_id=UUID(str(self.camera_id)) if not isinstance(self.camera_id, UUID) else self.camera_id, zone_id=det.zone.zone_id).inc()
+                FIRE_DETECTIONS.labels(camera_id=self.camera_id, zone_id=det.zone.zone_id).inc()
             elif det.detection_type == "smoke":
-                SMOKE_DETECTIONS.labels(camera_id=UUID(str(self.camera_id)) if not isinstance(self.camera_id, UUID) else self.camera_id, zone_id=det.zone.zone_id).inc()
+                SMOKE_DETECTIONS.labels(camera_id=self.camera_id, zone_id=det.zone.zone_id).inc()
 
             cooldown_key = f"{det.detection_type}:{det.zone.zone_id}"
             last_alert = self._last_alert_time.get(cooldown_key, 0.0)
@@ -280,13 +339,28 @@ class CameraWorker:
             # Generate unique alert UUID
             alert_uuid = uuid4()
 
-            # Upload evidence snapshot to MinIO
-            evidence_key = await self.minio.upload_evidence(
-                camera_id=UUID(str(self.camera_id)) if not isinstance(self.camera_id, UUID) else self.camera_id,
-                alert_id=str(alert_uuid),
-                image_bgr=annotated_image,
-                jpeg_quality=settings.jpeg_quality,
-            )
+            # Upload evidence snapshot to MinIO with bounded retry resilience
+            evidence_key = None
+            evidence_error = None
+            for attempt in range(3):
+                try:
+                    evidence_key = await self.minio.upload_evidence(
+                        camera_id=self.camera_id,
+                        alert_id=str(alert_uuid),
+                        image_bgr=annotated_image,
+                        jpeg_quality=settings.jpeg_quality,
+                    )
+                    if evidence_key:
+                        break
+                except Exception as exc:
+                    evidence_error = str(exc)
+                    if attempt < 2:
+                        await asyncio.sleep(0.05 * (attempt + 1))
+
+            if not evidence_key:
+                logger.warning(
+                    f"MinIO evidence storage unavailable ({evidence_error}); falling back to source frame reference for alert {alert_uuid}"
+                )
 
             # Build enriched metadata dictionary
             metadata: Dict[str, Any] = {
@@ -307,6 +381,7 @@ class CameraWorker:
                 "verification_details": det.verification_details,
                 "false_alarm_reason": None,
                 "frame_seq": result.frame_seq,
+                "evidence_status": "stored" if evidence_key else "fallback",
             }
 
             # Title & description
@@ -320,17 +395,15 @@ class CameraWorker:
             # Build canonical AlertEvent
             alert_event = AlertEvent(
                 alert_id=alert_uuid,
-                camera_id=UUID(str(self.camera_id)) if not isinstance(self.camera_id, UUID) else self.camera_id,
+                camera_id=self.camera_id,
                 severity=det.severity,
                 alert_type=f"{det.detection_type}_detected",
                 title=title,
                 description=description,
-                source_event_id=frame_event.event_id,
-                timestamp=datetime.now(timezone.utc),
-                status=AlertStatus.PENDING,
-                source_uc=SourceUC.UC2,
+                source_event_id=str(frame_event.event_id),
+                source_uc=SourceUC.uc2,
                 frame_reference=evidence_key or frame_event.frame_reference,
-                frame_provider=FrameProvider.MINIO if evidence_key else frame_event.frame_provider,
+                frame_provider=FrameProvider.minio if evidence_key else frame_event.frame_provider,
                 metadata=metadata,
             )
 
@@ -338,10 +411,11 @@ class CameraWorker:
             success = await self.publisher.publish(alert_event)
             if success:
                 ALERTS_GENERATED.labels(
-                    camera_id=UUID(str(self.camera_id)) if not isinstance(self.camera_id, UUID) else self.camera_id,
+                    camera_id=self.camera_id,
                     severity=det.severity.value,
                     alert_type=alert_event.alert_type,
                 ).inc()
 
             e2e_lat = time.perf_counter() - t_start
             E2E_LATENCY.labels(camera_id=self.camera_id).observe(e2e_lat)
+

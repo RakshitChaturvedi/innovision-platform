@@ -209,13 +209,37 @@ class DeterministicVerifier:
                 scores=scores,
             )
 
-        # If it's a solid uniform field of high brightness (like sun or bright sky patch)
+        # If it's a solid uniform field of high brightness (like sun, floodlight bulb, or bright sky patch)
         if spark_ratio > 0.70 and std_val < 25.0:
             return VerificationResult(
                 passed=False,
                 rejection_reason=f"broad_light_field (spark_ratio={spark_ratio:.2f})",
                 scores=scores,
             )
+
+        # Reject diffuse smoke cloud or overcast daylight patch misclassified as sparks
+        if spark_pixels > 0:
+            active_spark_hsv = roi_hsv[spark_mask > 0]
+            avg_spark_sat = float(np.mean(active_spark_hsv[:, 1]))
+            # If bright pixels are desaturated (gray/white smoke or cloud)
+            if avg_spark_sat < 55.0 and total_px > 10000:
+                return VerificationResult(
+                    passed=False,
+                    rejection_reason=f"desaturated_smoke_or_cloud (avg_sat={avg_spark_sat:.1f})",
+                    scores=scores,
+                )
+
+        # Check for static floodlight bulb / large uniform lamp fixture
+        num_labels, _labels, stats, _centroids = cv2.connectedComponentsWithStats(spark_mask)
+        if num_labels > 1:
+            max_component_area = max(stats[1:, cv2.CC_STAT_AREA]) if len(stats) > 1 else 0
+            # If a single solid connected component covers > 80% of ROI and has large area, it's a static lamp fixture
+            if max_component_area > 2000 and (max_component_area / float(total_px)) > 0.80 and std_val < 30.0:
+                return VerificationResult(
+                    passed=False,
+                    rejection_reason=f"static_floodlight_bulb (comp_area={max_component_area}, ratio={max_component_area/total_px:.2f})",
+                    scores=scores,
+                )
 
         spark_score = round(min(1.0, 0.40 + (std_val / 64.0) * 0.35 + (max_val / 255.0) * 0.25), 4)
         return VerificationResult(

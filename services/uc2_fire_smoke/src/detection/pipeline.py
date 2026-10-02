@@ -104,9 +104,41 @@ class DetectionPipeline:
         confirmed: List[ConfirmedDetection] = []
         suppressed: List[Dict[str, Any]] = []
 
+        # Stage 1.5: Enclosure pre-filtering (sparks inside large smoke clouds suppressed)
+        smoke_boxes = [c["bbox"] for c in raw_candidates if c["detection_type"] == "smoke"]
+        valid_candidates = []
+        for cand in raw_candidates:
+            if cand["detection_type"] in ("sparks", "spark") and smoke_boxes:
+                sb = cand["bbox"]
+                sb_area = max(1, (sb["x2"] - sb["x1"]) * (sb["y2"] - sb["y1"]))
+                inside_smoke = False
+                for mb in smoke_boxes:
+                    mb_area = max(1, (mb["x2"] - mb["x1"]) * (mb["y2"] - mb["y1"]))
+                    if mb_area > sb_area * 1.8:
+                        ix1 = max(sb["x1"], mb["x1"])
+                        iy1 = max(sb["y1"], mb["y1"])
+                        ix2 = min(sb["x2"], mb["x2"])
+                        iy2 = min(sb["y2"], mb["y2"])
+                        if ix2 > ix1 and iy2 > iy1:
+                            inter_area = (ix2 - ix1) * (iy2 - iy1)
+                            if (inter_area / float(sb_area)) > 0.25:
+                                inside_smoke = True
+                                break
+                if inside_smoke:
+                    suppressed.append({
+                        "detection_type": cand["detection_type"],
+                        "bbox": cand["bbox"],
+                        "reason": "spark_enclosed_in_smoke",
+                        "yolo_confidence": cand["confidence"],
+                        "zone_id": "zone-default",
+                        "frame_seq": frame_seq,
+                    })
+                    continue
+            valid_candidates.append(cand)
+
         active_detection_keys: List[str] = []
 
-        for candidate in raw_candidates:
+        for candidate in valid_candidates:
             det_type = candidate["detection_type"]
             bbox_dict = candidate["bbox"]
             x1, y1, x2, y2 = bbox_dict["x1"], bbox_dict["y1"], bbox_dict["x2"], bbox_dict["y2"]

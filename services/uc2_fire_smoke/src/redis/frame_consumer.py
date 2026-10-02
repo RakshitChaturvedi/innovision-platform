@@ -44,6 +44,7 @@ class RedisFrameConsumer:
         self.consumer_name = consumer_name or f"worker_{camera_id}"
         self.minio = minio_client or MinIOClient()
         self._group_created = False
+        self.skipped_frames: int = 0
 
     async def ensure_consumer_group(self) -> None:
         """Create consumer group on stream if not exists (MKSTREAM)."""
@@ -101,9 +102,13 @@ class RedisFrameConsumer:
         self,
         batch_size: int = 1,
         block_ms: int = 1000,
+        latest_only: bool = True,
     ) -> AsyncGenerator[Tuple[str, FrameEvent, Optional[np.ndarray]], None]:
         """
         Generator yielding (message_id, FrameEvent, frame_bgr_image).
+        When latest_only=True and a backlog of frames has accumulated in Redis,
+        intermediate stale frames are acknowledged to prevent unbounded queue growth
+        and ensure strict frame freshness for real-time detection.
         """
         await self.ensure_consumer_group()
 
@@ -120,6 +125,17 @@ class RedisFrameConsumer:
                 return
 
             for stream, messages in entries:
+                if not messages:
+                    continue
+
+                if latest_only and len(messages) > 1:
+                    skipped_count = len(messages) - 1
+                    self.skipped_frames += skipped_count
+                    for s_id, _ in messages[:-1]:
+                        s_str = s_id.decode("utf-8") if isinstance(s_id, bytes) else str(s_id)
+                        await self.ack(s_str)
+                    messages = [messages[-1]]
+
                 for msg_id, fields in messages:
                     # fields is dict of bytes -> bytes or str -> str
                     raw_data = fields.get(b"data") or fields.get("data")

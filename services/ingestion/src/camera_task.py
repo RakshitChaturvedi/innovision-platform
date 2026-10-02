@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio, logging
 from typing import Any
 import redis.asyncio as aioredis
+import cv2
 import numpy as np
 
 from services.ingestion.src.config import settings
@@ -104,7 +105,16 @@ class CameraIngestionTask:
     async def _process_frame(self, frame: np.ndarray, frame_seq: int, encoder=JpegEncoder) -> None:
         # encode, cache, persist and publish 1 sampled frame
 
-        # 1. Encodeg
+        # 0. High-resolution downsampling (preserving aspect ratio and small details)
+        if settings.downsample_enabled and frame is not None and frame.size > 0:
+            h, w = frame.shape[:2]
+            if w > settings.max_frame_width or h > settings.max_frame_height:
+                scale = min(settings.max_frame_width / w, settings.max_frame_height / h)
+                new_w = max(1, int(round(w * scale)))
+                new_h = max(1, int(round(h * scale)))
+                frame = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
+
+        # 1. Encode
         try:
             jpeg_bytes = encoder.encode(frame)
         except Exception as e:

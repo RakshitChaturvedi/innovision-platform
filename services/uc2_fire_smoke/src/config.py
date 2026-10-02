@@ -73,11 +73,22 @@ class UC2Config(BaseSettings):
     # ── Model ─────────────────────────────────────────────────────────────────
     yolo_model_path: str = Field("models/best.pt", alias="UC2_YOLO_MODEL_PATH")
     model_version: str = Field("fireguard-v8m-1.2", alias="UC2_MODEL_VERSION")
-    device: str = Field("cpu", alias="UC2_DEVICE")
+    model_name: str = Field("YOLO26m Fire/Smoke/Sparks Detector", alias="UC2_MODEL_NAME")
+    expected_model_checksum: str = Field(
+        "227db351bf5bdeb27b86f2256d4a9b340042ea63fd0e92b0dea6734b99c482c1",
+        alias="UC2_EXPECTED_MODEL_CHECKSUM",
+    )
+    validate_checksum: bool = Field(True, alias="UC2_VALIDATE_CHECKSUM")
+    device: str = Field("auto", alias="UC2_DEVICE")
     half_precision: bool = Field(False, alias="UC2_HALF_PRECISION")
     inference_size: int = Field(640, alias="UC2_INFERENCE_SIZE")
     conf_threshold: float = Field(0.20, alias="UC2_CONF_THRESHOLD")
     iou_threshold: float = Field(0.45, alias="UC2_IOU_THRESHOLD")
+
+    # ── Camera Health & Diagnostics ───────────────────────────────────────────
+    camera_stale_threshold_s: float = Field(15.0, alias="UC2_CAMERA_STALE_THRESHOLD_S")
+    camera_degraded_threshold_s: float = Field(3.0, alias="UC2_CAMERA_DEGRADED_THRESHOLD_S")
+    evidence_buffer_size: int = Field(5, alias="UC2_EVIDENCE_BUFFER_SIZE")
 
     # ── Detection Mode ────────────────────────────────────────────────────────
     detection_mode: str = Field("BALANCED", alias="UC2_DETECTION_MODE")

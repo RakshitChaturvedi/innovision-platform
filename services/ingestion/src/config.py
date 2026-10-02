@@ -24,6 +24,10 @@ class IngestionConfig(BaseSettings):
 
     default_fps: float = Field(default=10, alias="DEFAULT_FPS")
     jpeg_quality: int = Field(default=85, alias="JPEG_QUALITY")
+    # High-resolution downsampling controls (1080p/4K -> safe operating envelope)
+    downsample_enabled: bool = Field(default=True, alias="INGESTION_DOWNSAMPLE_ENABLED")
+    max_frame_width: int = Field(default=640, alias="INGESTION_MAX_FRAME_WIDTH")
+    max_frame_height: int = Field(default=480, alias="INGESTION_MAX_FRAME_HEIGHT")
     heartbeat_interval_s: int = Field(default=5, alias="HEARTBEAT_INTERVAL_S")
     stream_maxlen: int = Field(default=1000, alias="STREAM_MAXLEN")
     camera_offline_timeout_s: int = Field(default=10, alias="CAMERA_OFFLINE_TIMEOUT_S")

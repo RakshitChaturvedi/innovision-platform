@@ -129,3 +129,19 @@ class MinIOClient:
                 return None
 
         return await asyncio.to_thread(_sync_get)
+
+    async def check_health(self) -> bool:
+        """Check MinIO connectivity by probing bucket list."""
+        if not self._client:
+            return False
+
+        def _sync_check() -> bool:
+            try:
+                self._client.list_buckets()
+                return True
+            except Exception as exc:
+                logger.warning(f"MinIO health check probe failed: {exc}")
+                return False
+
+        return await asyncio.to_thread(_sync_check)
+

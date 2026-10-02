@@ -49,6 +49,13 @@ SMOKE_DETECTIONS = Counter(
     registry=REGISTRY,
 )
 
+SPARKS_DETECTIONS = Counter(
+    "uc2_sparks_detections_total",
+    "Total confirmed sparks detections",
+    ["camera_id", "zone_id"],
+    registry=REGISTRY,
+)
+
 FALSE_ALARMS = Counter(
     "uc2_false_alarms_total",
     "Total candidate detections suppressed by false alarm engine",

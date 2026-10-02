@@ -1,0 +1,98 @@
+name: UC2 FireGuard Production CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, master, uc2, uiredesign]
+  pull_request:
+    branches: [main, master, uc2]
+
+jobs:
+  code-quality:
+    name: Lint & Code Style Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Linting Tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 black ruff bandit
+
+      - name: Run Ruff Linter
+        run: |
+          ruff check services/uc2_fire_smoke backend
+
+      - name: Security Scan (Bandit)
+        run: |
+          bandit -r services/uc2_fire_smoke -s B101,B104 -ll
+
+  unit-and-regression-tests:
+    name: Unit & Detection Regression Suite
+    runs-on: ubuntu-latest
+    needs: code-quality
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-glx libglib2.0-0
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r services/uc2_fire_smoke/requirements.txt
+          pip install pytest pytest-asyncio
+
+      - name: Verify Model Weights Checksum
+        run: |
+          python -c "
+          import hashlib
+          from pathlib import Path
+          p = Path('models/best.pt')
+          if p.exists():
+              h = hashlib.sha256(p.read_bytes()).hexdigest()
+              print(f'Model SHA256: {h}')
+              assert h == '227db351bf5bdeb27b86f2256d4a9b340042ea63fd0e92b0dea6734b99c482c1', 'Checksum mismatch!'
+          else:
+              print('Warning: models/best.pt not found in workspace root, skipping local checksum check')
+          "
+
+      - name: Run UC2 Unit Tests
+        run: |
+          pytest services/uc2_fire_smoke/tests -v --durations=10
+
+  docker-build:
+    name: Production Docker Container Build
+    runs-on: ubuntu-latest
+    needs: unit-and-regression-tests
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build UC2 Analytics Container
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: services/uc2_fire_smoke/Dockerfile
+          push: false
+          tags: innovision/uc2-analytics:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import time
 from typing import Dict, List, Optional
 
@@ -110,10 +109,6 @@ class PipelineManager:
         """Fetch camera list from registry and sync active worker instances."""
         try:
             cameras = await self.registry_client.get_active_cameras(uc_id="uc2")
-            if not cameras:
-                default_cam_id = os.environ.get("TEST_CAMERA_ID", "00000000-0000-0000-0000-000000000002")
-                if default_cam_id:
-                    cameras = [{"id": default_cam_id, "name": "Test Camera UC2", "location": "Integration Test"}]
             active_ids = set()
 
             for cam in cameras:
@@ -212,43 +207,42 @@ class PipelineManager:
             return worker.get_latest_preview_jpeg()
         return None
 
-    def pause_camera(self, camera_id: str) -> bool:
-        """Pause frame ingestion and inference on a camera worker."""
-        worker = self._workers.get(camera_id)
-        if worker:
-            worker.pause()
-            return True
-        return False
-
-    def resume_camera(self, camera_id: str) -> bool:
-        """Resume frame ingestion and inference on a camera worker."""
-        worker = self._workers.get(camera_id)
-        if worker:
-            worker.resume()
-            return True
-        return False
-
     def get_pipeline_status(self) -> dict:
-        """Return operational overview of pipeline and all active camera workers."""
+        """Return operational overview of pipeline, model diagnostics, and all camera workers."""
         now = time.time()
         worker_statuses = []
+        online_count = 0
+        degraded_count = 0
+        offline_count = 0
+        error_count = 0
+
         for cam_id, worker in self._workers.items():
-            worker_statuses.append({
-                "camera_id": cam_id,
-                "camera_name": worker.camera_name,
-                "camera_location": worker.camera_location,
-                "fps": worker.current_fps,
-                "paused": worker.is_paused,
-                "last_seen_s_ago": round(now - worker.last_seen_timestamp, 1),
-                "zones_count": len(self.zone_engine.get_camera_zones(cam_id)),
-            })
+            diag = worker.get_diagnostics()
+            diag["zones_count"] = len(self.zone_engine.get_camera_zones(cam_id))
+            status_val = diag.get("status")
+            if status_val == "online":
+                online_count += 1
+            elif status_val == "degraded":
+                degraded_count += 1
+            elif status_val == "offline":
+                offline_count += 1
+            elif status_val == "error":
+                error_count += 1
+            worker_statuses.append(diag)
+
+        model_info = self.yolo_engine.get_model_info()
 
         return {
             "status": "healthy" if self._running else "stopped",
             "uptime_seconds": round(now - self.start_time, 1),
             "active_camera_count": len(self._workers),
+            "online_cameras": online_count,
+            "degraded_cameras": degraded_count,
+            "offline_cameras": offline_count,
+            "error_cameras": error_count,
             "detection_mode": settings.detection_mode,
-            "model_version": settings.model_version,
+            "model_info": model_info,
             "pipeline_version": settings.pipeline_version,
             "workers": worker_statuses,
         }
+

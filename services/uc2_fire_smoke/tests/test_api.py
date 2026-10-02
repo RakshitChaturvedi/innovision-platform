@@ -62,3 +62,44 @@ def test_api_mode_switch():
     response = client.post("/mode", json={"mode": "SENSITIVE"})
     assert response.status_code == 200
     assert response.json()["detection_mode"] == "SENSITIVE"
+
+
+def test_api_liveness():
+    client = TestClient(app)
+    response = client.get("/health/live")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "alive"
+    assert data["service"] == "uc2_fire_smoke"
+
+
+def test_api_diagnostic_and_metrics():
+    client = TestClient(app)
+    # Mock pipeline manager on app.state
+    mock_pm = MagicMock()
+    mock_pm.get_pipeline_status.return_value = {"active_workers": 1}
+    mock_pm.yolo_engine.get_model_info.return_value = {"model": "fireguard"}
+    mock_pm.yolo_engine.is_ready.return_value = True
+    mock_pm.yolo_engine.device = "cpu"
+    mock_pm.yolo_engine.class_names = ["fire", "smoke", "sparks"]
+    mock_pm.redis.ping = AsyncMock(return_value=True)
+    mock_pm.minio.check_health = AsyncMock(return_value=True)
+    mock_pm._workers = {"cam-1": MagicMock()}
+
+    app.state.pipeline_manager = mock_pm
+
+    # Test /health/ready
+    res_ready = client.get("/health/ready")
+    assert res_ready.status_code == 200
+    assert res_ready.json()["ready"] is True
+
+    # Test /health/diagnostic
+    res_diag = client.get("/health/diagnostic")
+    assert res_diag.status_code == 200
+    assert res_diag.json()["settings"]["device"] == "auto"
+
+    # Test /metrics
+    res_metrics = client.get("/metrics")
+    assert res_metrics.status_code == 200
+    assert b"uc2_frames_processed_total" in res_metrics.content
+
