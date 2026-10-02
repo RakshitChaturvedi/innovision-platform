@@ -7,6 +7,7 @@ import {
 import {
   acknowledgeAlert,
   getAlerts,
+  getAlertSnapshot,
   resolveAlert,
   type AlertFilters,
 } from "@/api/alerts";
@@ -14,9 +15,40 @@ import {
 import { EmptyState } from "@/components/common/EmptyState";
 import { ErrorState } from "@/components/common/ErrorState";
 import { LoadingState } from "@/components/common/LoadingState";
+import type { Alert } from "@/types/alert";
 
 interface AlertListProps {
   filters: AlertFilters;
+}
+
+// Fetches and displays the evidence snapshot thumbnail for alerts that have one.
+function AlertSnapshot({ alertId }: { alertId: string }) {
+  const { data } = useQuery({
+    queryKey: ["alert-snapshot", alertId],
+    queryFn: () => getAlertSnapshot(alertId),
+    // Only refetch before it expires; snapshots are 5-minute presigned URLs
+    staleTime: 4 * 60 * 1000,
+    retry: false,
+  });
+
+  if (!data?.url) return null;
+
+  return (
+    <a
+      href={data.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="alert-snapshot-link"
+      aria-label="View evidence snapshot"
+    >
+      <img
+        src={data.url}
+        alt="Evidence snapshot"
+        className="alert-snapshot-thumb"
+        style={{ maxWidth: 80, maxHeight: 60, objectFit: "cover", borderRadius: 4 }}
+      />
+    </a>
+  );
 }
 
 function getSeverityLabel(
@@ -148,6 +180,10 @@ export default function AlertList({
                 {formatTimestamp(alert.created_at)}
               </time>
             </div>
+
+            {alert.frame_reference && (
+              <AlertSnapshot alertId={alert.alert_id} />
+            )}
           </div>
 
           <div className="alert-actions">

@@ -54,3 +54,17 @@ export async function resolveAlert(
 
   return data;
 }
+
+export interface SnapshotResponse {
+  url: string;
+  expires_in: number;
+}
+
+export async function getAlertSnapshot(
+  alertId: string,
+): Promise<SnapshotResponse> {
+  const { data } = await alertClient.get<SnapshotResponse>(
+    `/alerts/${alertId}/snapshot`,
+  );
+  return data;
+}

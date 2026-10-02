@@ -1,7 +1,11 @@
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy import text
 from collections.abc import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession
+import asyncio
+from minio import Minio
+from datetime import timedelta
+
 from services.auth.src.rbac import require_role, Role, get_current_user
 from services.audit.src.writer import write_audit_entry
 from shared.platform_client.db import get_session_factory
@@ -10,6 +14,22 @@ from .websocket import push_alert_update
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 _session_factory = get_session_factory(settings.database_url)
+
+# MinIO client — uses internal endpoint for API calls
+_minio_internal = Minio(
+    settings.minio_endpoint,
+    access_key=settings.minio_access_key,
+    secret_key=settings.minio_secret_key,
+    secure=settings.minio_secure,
+)
+
+# MinIO client — uses public endpoint so presigned URLs are browser-reachable
+_minio_public = Minio(
+    settings.minio_public_endpoint,
+    access_key=settings.minio_access_key,
+    secret_key=settings.minio_secret_key,
+    secure=settings.minio_secure,
+)
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -129,3 +149,39 @@ async def count(user: dict = Depends(get_current_user), db: AsyncSession = Depen
         SELECT count(*) AS c FROM alerts WHERE status = 'pending' {camera_filter}
     """), params)
     return {"count": row.fetchone().c}
+
+
+@router.get("/{alert_id}/snapshot", dependencies=[Depends(require_role(Role.OPERATOR))])
+async def get_snapshot(
+    alert_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Return a presigned GET URL for the alert's evidence snapshot stored in MinIO.
+    The URL is built against MINIO_PUBLIC_ENDPOINT so the browser can reach it.
+    Returns 404 when the alert has no frame_reference.
+    """
+    row = (await db.execute(
+        text("SELECT frame_reference FROM alerts WHERE alert_id = :id"),
+        {"id": alert_id},
+    )).fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    frame_reference: str | None = row.frame_reference
+    if not frame_reference:
+        raise HTTPException(status_code=404, detail="Alert has no snapshot")
+
+    try:
+        # Presign using the public-endpoint client so the URL is browser-reachable
+        url = await asyncio.to_thread(
+            _minio_public.presigned_get_object,
+            settings.minio_snapshots_bucket,
+            frame_reference,
+            expires=timedelta(seconds=settings.snapshot_presign_expires),
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not generate snapshot URL: {exc}")
+
+    return {"url": url, "expires_in": settings.snapshot_presign_expires}
