@@ -15,9 +15,11 @@ from .timeline import append_entry, fetch_timeline
 router = APIRouter(prefix="/incidents", tags=["incidents"])
 _session_factory = get_session_factory(settings.database_url)
 
+
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with _session_factory() as session:
         yield session
+
 
 async def get_optional_user(authorization: str | None = Header(None)) -> dict | None:
     if not authorization:
@@ -26,6 +28,7 @@ async def get_optional_user(authorization: str | None = Header(None)) -> dict | 
         return await get_current_user(authorization=authorization)
     except Exception:
         return None
+
 
 @router.get("")
 async def list_incidents(
@@ -36,22 +39,28 @@ async def list_incidents(
 ):
     conditions, params = [], {}
     if status:
-        conditions.append("status = :status"); params["status"] = status
+        conditions.append("status = :status")
+        params["status"] = status
     if assigned_to:
-        conditions.append("assigned_to = :assigned_to"); params["assigned_to"] = assigned_to
+        conditions.append("assigned_to = :assigned_to")
+        params["assigned_to"] = assigned_to
 
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-    rows = await db.execute(text(f"""
-        SELECT * FROM incidents {where} ORDER BY created_at DESC
-    """), params)
+    rows = await db.execute(
+        text(f"SELECT * FROM incidents {where} ORDER BY created_at DESC"), params
+    )
     return [dict(r._mapping) for r in rows.fetchall()]
 
 
 @router.get("/{incident_id}")
 async def get_incident(
-    incident_id: str, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    incident_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    row = await db.execute(text("SELECT * FROM incidents WHERE id = :id"), {"id": incident_id})
+    row = await db.execute(
+        text("SELECT * FROM incidents WHERE id = :id"), {"id": incident_id}
+    )
     incident = row.fetchone()
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
@@ -80,29 +89,33 @@ async def update_status(
     if not is_valid_transition(current.status, new_status):
         raise HTTPException(
             status_code=400,
-            detail=f"Cannot transition from '{current.status}' to '{new_status}'. "
-                   f"Valid next states: {all_valid_next_states(current.status)}",
+            detail=(
+                f"Cannot transition from '{current.status}' to '{new_status}'. "
+                f"Valid next states: {all_valid_next_states(current.status)}"
+            ),
         )
 
-    async with db.begin():
-        await db.execute(text("""
-            UPDATE incidents SET status = :status, updated_at = now(),
-                resolved_at = CASE WHEN :status = 'resolved' THEN now() ELSE resolved_at END
-            WHERE id = :id
-        """), {"status": new_status, "id": incident_id})
+    await db.execute(text("""
+        UPDATE incidents
+        SET status = :status,
+            updated_at = now(),
+            resolved_at = CASE WHEN :status = 'resolved' THEN now() ELSE resolved_at END
+        WHERE id = :id
+    """), {"status": new_status, "id": incident_id})
 
-        await append_entry(
-            db, incident_id, action="status_changed", user_id=user["sub"],
-            from_status=current.status, to_status=new_status,
-        )
+    await append_entry(
+        db, incident_id, action="status_changed", user_id=user["sub"],
+        from_status=current.status, to_status=new_status,
+    )
 
-        await write_audit_entry(
-            _session_factory, service="incident_management",
-            action="incident_status_changed", entity_type="incident",
-            entity_id=incident_id, user_id=user["sub"],
-            metadata={"from": current.status, "to": new_status}, session=db
-        )
+    await write_audit_entry(
+        _session_factory, service="incident_management",
+        action="incident_status_changed", entity_type="incident",
+        entity_id=incident_id, user_id=user["sub"],
+        metadata={"from": current.status, "to": new_status}, session=db,
+    )
 
+    await db.commit()
     return {"status": new_status}
 
 
@@ -119,16 +132,16 @@ async def assign(
     if not exists:
         raise HTTPException(status_code=404, detail="Incident not found")
 
-    async with db.begin():
-        await db.execute(text("""
-            UPDATE incidents SET assigned_to = :assignee_id WHERE id = :id
-        """), {"assignee_id": assignee_id, "id": incident_id})
+    await db.execute(text("""
+        UPDATE incidents SET assigned_to = :assignee_id WHERE id = :id
+    """), {"assignee_id": assignee_id, "id": incident_id})
 
-        await append_entry(
-            db, incident_id, action="assigned", user_id=user["sub"],
-            note=f"Assigned to operator {assignee_id}",
-        )
+    await append_entry(
+        db, incident_id, action="assigned", user_id=user["sub"],
+        note=f"Assigned to operator {assignee_id}",
+    )
 
+    await db.commit()
     return {"status": "assigned", "assigned_to": assignee_id}
 
 
@@ -139,7 +152,12 @@ async def add_note(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    async with db.begin():
-        await append_entry(db, incident_id, action="note_added", user_id=user["sub"], note=note)
+    exists = (await db.execute(
+        text("SELECT 1 FROM incidents WHERE id = :id"), {"id": incident_id}
+    )).fetchone()
+    if not exists:
+        raise HTTPException(status_code=404, detail="Incident not found")
 
+    await append_entry(db, incident_id, action="note_added", user_id=user["sub"], note=note)
+    await db.commit()
     return {"status": "note_added"}
