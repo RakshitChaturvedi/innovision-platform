@@ -1,4 +1,4 @@
-﻿"""Add high-volume production composite indexes for UC2 alerts and incidents
+"""Add high-volume production composite indexes for UC2 alerts and incidents
 
 Revision ID: 0002
 Revises: 0001
@@ -14,6 +14,9 @@ branch_labels = None
 depends_on = None
 
 def upgrade():
+    # Ensure source_uc enum supports uc5
+    op.execute("ALTER TYPE source_uc ADD VALUE IF NOT EXISTS 'uc5'")
+
     # Composite index for camera hazard deduplication & recent alert history
     op.create_index(
         "idx_alerts_camera_type_time",

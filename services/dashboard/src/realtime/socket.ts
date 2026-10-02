@@ -1,7 +1,7 @@
 import { io, type Socket } from "socket.io-client";
 
 const SOCKET_URL =
-  import.meta.env.VITE_SOCKET_URL ?? "http://localhost:8000";
+  import.meta.env.VITE_SOCKET_URL ?? "http://localhost:8010";
 
 export function createSocket(token: string): Socket {
   return io(`${SOCKET_URL}/alerts`, {

@@ -1,0 +1,427 @@
+services:
+  # ── INFRASTRUCTURE ────────────────────────────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: innovision-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-innovision_platform}
+      POSTGRES_USER: ${POSTGRES_USER:-innovision}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-innovision} -d ${POSTGRES_DB:-innovision_platform}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    container_name: innovision-redis
+    command: >
+      redis-server
+      --maxmemory 2gb
+      --maxmemory-policy allkeys-lru
+      --save ""
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  minio:
+    image: quay.io/minio/minio:latest
+    container_name: innovision-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-changeme}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+  # ── AUTOMATED PLATFORM BOOTSTRAPPER ──────────────────────────────────────
+  platform_init:
+    build:
+      context: .
+      dockerfile: infra/Dockerfile.init
+    container_name: innovision-platform-init
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://innovision:changeme@postgres:5432/innovision_platform}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-changeme}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+      minio:    { condition: service_healthy }
+    restart: "no"
+
+  # ── CORE PLATFORM SERVICES ───────────────────────────────────────────────
+  auth:
+    build:
+      context: .
+      dockerfile: services/auth/Dockerfile
+    container_name: innovision-auth
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://innovision:changeme@postgres:5432/innovision_platform}
+      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-secret}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      JWT_REFRESH_TOKEN_EXPIRE_DAYS: ${JWT_REFRESH_TOKEN_EXPIRE_DAYS:-7}
+    depends_on:
+      platform_init: { condition: service_completed_successfully }
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  camera_registry:
+    build:
+      context: .
+      dockerfile: services/camera_registry/Dockerfile
+    container_name: innovision-camera-registry
+    env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://innovision:changeme@postgres:5432/innovision_platform}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      platform_init: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8011/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "8011:8011"
+    restart: unless-stopped
+
+  ingestion:
+    build:
+      context: .
+      dockerfile: services/ingestion/Dockerfile
+    container_name: innovision-ingestion
+    env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://innovision:changeme@postgres:5432/innovision_platform}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-changeme}
+      CAMERA_REGISTRY_URL: http://camera_registry:8011
+      DOWNSAMPLE_ENABLED: "true"
+      MAX_FRAME_WIDTH: "640"
+      MAX_FRAME_HEIGHT: "480"
+    depends_on:
+      platform_init: { condition: service_completed_successfully }
+      camera_registry: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8020/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "8020:8020"
+    volumes:
+      - ./test_data/videos:/app/test_data/videos:ro
+    restart: unless-stopped
+
+  alert_management:
+    build:
+      context: .
+      dockerfile: services/alert_management/Dockerfile
+    container_name: innovision-alert-management
+    env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://innovision:changeme@postgres:5432/innovision_platform}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MINIO_ENDPOINT: minio:9000
+      CAMERA_REGISTRY_URL: http://camera_registry:8011
+      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-secret}
+    ports:
+      - "8010:8000"
+    depends_on:
+      platform_init: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  alert_management_worker:
+    build:
+      context: .
+      dockerfile: services/alert_management/Dockerfile
+    container_name: innovision-alert-worker
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://innovision:changeme@postgres:5432/innovision_platform}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CELERY_BROKER_URL: redis://redis:6379/1
+    depends_on:
+      platform_init: { condition: service_completed_successfully }
+    command: ["celery", "-A", "services.alert_management.src.escalation.celery_app", "worker", "--loglevel=INFO"]
+    restart: unless-stopped
+
+  incident_management:
+    build:
+      context: .
+      dockerfile: services/incident_management/Dockerfile
+    container_name: innovision-incident-management
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://innovision:changeme@postgres:5432/innovision_platform}
+      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-secret}
+      JWT_ALGORITHM: HS256
+    depends_on:
+      platform_init: { condition: service_completed_successfully }
+    ports:
+      - "8003:8000"
+    restart: unless-stopped
+
+  notification:
+    build:
+      context: .
+      dockerfile: services/notification/Dockerfile
+    container_name: innovision-notification
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://innovision:changeme@postgres:5432/innovision_platform}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      SMTP_HOST: ${SMTP_HOST:-localhost}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-notifications@innovision.local}
+    depends_on:
+      platform_init: { condition: service_completed_successfully }
+    ports:
+      - "8004:8000"
+    restart: unless-stopped
+
+  audit:
+    build:
+      context: .
+      dockerfile: services/audit/Dockerfile
+    container_name: innovision-audit
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://innovision:changeme@postgres:5432/innovision_platform}
+    depends_on:
+      platform_init: { condition: service_completed_successfully }
+    ports:
+      - "8002:8000"
+    restart: unless-stopped
+
+  reporting_worker:
+    build:
+      context: .
+      dockerfile: services/reporting/Dockerfile
+    container_name: innovision-reporting-worker
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://innovision:changeme@postgres:5432/innovision_platform}
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-changeme}
+      CELERY_BROKER_URL: redis://redis:6379/2
+      UC1_COMPLIANCE_URL: http://uc1_worker:8021/health
+      UC3_PPE_METRICS_URL: http://camera_registry:8011/cameras
+    depends_on:
+      platform_init: { condition: service_completed_successfully }
+    command: ["celery", "-A", "services.reporting.src.tasks.celery_app", "worker", "--loglevel=INFO"]
+    restart: unless-stopped
+
+  # ── ANALYTICS USE CASES (UC1 – UC5) ───────────────────────────────────────
+  # Real UC2: Fire, Smoke, and Sparks AI Analytics
+  uc2_fire_smoke:
+    build:
+      context: .
+      dockerfile: services/uc2_fire_smoke/Dockerfile
+    container_name: innovision-uc2-fire-smoke
+    ports:
+      - "8030:8030"
+    environment:
+      - UC2_PORT=8030
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-changeme}
+      - CAMERA_REGISTRY_URL=http://camera_registry:8011
+      - UC2_STREAM_GROUP=uc2_fire_smoke_cg
+      - UC2_FRAMES_BUCKET=innovision-frames
+      - UC2_EVIDENCE_BUCKET=innovision-evidence
+      - UC2_CONF_THRESHOLD=0.20
+      - UC2_TEMPORAL_FRAMES=3
+      - UC2_ALERT_COOLDOWN_S=30
+    depends_on:
+      platform_init: { condition: service_completed_successfully }
+      ingestion:     { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8030/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+  # UC1: Worker Count / Person Detection
+  uc1_worker:
+    build:
+      context: .
+      dockerfile: stubs/uc1_v2/Dockerfile
+    container_name: innovision-uc1-worker
+    ports:
+      - "8021:8021"
+    environment:
+      REDIS_URL: redis://redis:6379
+      TEST_CAMERA_ID: "00000000-0000-0000-0000-000000000001"
+      REDIS_CONSUMER_GROUP: uc1_v2_group
+      REDIS_CONSUMER_NAME: uc1_v2_worker_1
+      YOLO_MODEL: yolov8n.pt
+      YOLO_CONFIDENCE: "0.35"
+    depends_on:
+      platform_init: { condition: service_completed_successfully }
+      ingestion:     { condition: service_healthy }
+    restart: unless-stopped
+
+  # UC3: PPE Compliance
+  uc3_worker:
+    build:
+      context: .
+      dockerfile: stubs/uc3_stub/Dockerfile
+    container_name: innovision-uc3-worker
+    environment:
+      UC_ID: uc3
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      TEST_CAMERA_ID: "00000000-0000-0000-0000-000000000003"
+      ALERT_INTERVAL_SECONDS: "12"
+    depends_on:
+      platform_init: { condition: service_completed_successfully }
+    restart: unless-stopped
+
+  # UC4: Vehicle / Speed Detection
+  uc4_worker:
+    build:
+      context: .
+      dockerfile: stubs/uc4_stub/Dockerfile
+    container_name: innovision-uc4-worker
+    environment:
+      UC_ID: uc4
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      TEST_CAMERA_ID: "00000000-0000-0000-0000-000000000004"
+      ALERT_INTERVAL_SECONDS: "15"
+    depends_on:
+      platform_init: { condition: service_completed_successfully }
+    restart: unless-stopped
+
+  # UC5: Hazardous Area Intrusion & Chemical Spill Detection
+  uc5_worker:
+    build:
+      context: .
+      dockerfile: stubs/uc5_stub/Dockerfile
+    container_name: innovision-uc5-worker
+    environment:
+      UC_ID: uc5
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      TEST_CAMERA_ID: "00000000-0000-0000-0000-000000000005"
+      ALERT_INTERVAL_SECONDS: "18"
+    depends_on:
+      platform_init: { condition: service_completed_successfully }
+    restart: unless-stopped
+
+  # ── OPERATOR DASHBOARD UI ────────────────────────────────────────────────
+  dashboard:
+    build:
+      context: .
+      dockerfile: services/dashboard/Dockerfile
+      args:
+        VITE_AUTH_API_URL: http://localhost:8000
+        VITE_CAMERA_API_URL: http://localhost:8011
+        VITE_ALERTS_API_URL: http://localhost:8010
+        VITE_SOCKET_URL: http://localhost:8010
+        VITE_INGESTION_API_URL: http://localhost:8020
+        VITE_UC2_STREAM_URL: http://localhost:8030
+    container_name: innovision-dashboard
+    ports:
+      - "3000:3000"
+    depends_on:
+      platform_init: { condition: service_completed_successfully }
+    restart: unless-stopped
+
+  # ── OBSERVABILITY & GATEWAY ──────────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: innovision-nginx
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "80:80"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+      minio:    { condition: service_healthy }
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: innovision-prometheus
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: innovision-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-changeme}
+    volumes:
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:latest
+    container_name: innovision-loki
+    volumes:
+      - ./infra/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+    ports:
+      - "3100:3100"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  prometheus_data:
+  grafana_data:
+  loki_data:

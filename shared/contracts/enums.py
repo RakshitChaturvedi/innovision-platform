@@ -54,10 +54,12 @@ class SourceUC(str, Enum):
     UC2 = "uc2"
     UC3 = "uc3"
     UC4 = "uc4"
+    UC5 = "uc5"
     uc1 = "uc1"
     uc2 = "uc2"
     uc3 = "uc3"
     uc4 = "uc4"
+    uc5 = "uc5"
 
 
 class CameraStatus(str, Enum):

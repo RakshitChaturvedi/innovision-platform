@@ -1,27 +1,18 @@
 .PHONY: up up-stubs up-uc2 down logs migrate buckets streams test smoke smoke2 setup setup2 logs-ingestion logs-registry
 up:
-	docker compose --env-file .env -f infra/docker-compose.yml up -d --build
+	docker compose --env-file .env up -d --build
 
 up-stubs:
-	docker compose --env-file .env \
-		-f infra/docker-compose.yml \
-		-f infra/docker-compose.stubs.yml \
-		up -d --build
+	docker compose --env-file .env up -d --build
 
 up-uc2:
-	docker compose --env-file .env \
-		-f infra/docker-compose.yml \
-		-f infra/docker-compose.uc2.yml \
-		up -d --build
+	docker compose --env-file .env up -d --build uc2_fire_smoke
 
 down:
-	docker compose \
-		-f infra/docker-compose.yml \
-		-f infra/docker-compose.stubs.yml \
-		down
+	docker compose down
 
 logs:
-	docker compose --env-file .env -f infra/docker-compose.yml logs -f
+	docker compose logs -f
 
 migrate:
 	alembic -c migrations/alembic.ini upgrade head
