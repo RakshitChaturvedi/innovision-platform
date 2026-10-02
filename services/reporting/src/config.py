@@ -21,8 +21,9 @@ class ReportingSettings(BaseSettings):
         default="http://uc1_api:8000/uc1/compliance/readiness",
         alias="UC1_COMPLIANCE_URL",
     )
+    # UC3 PPE metrics — configurable; default reaches UC3 on host port 8030
     uc3_ppe_metrics_url: str = Field(
-        default="http://uc3_api:8000/uc3/compliance/ppe-summary",
+        default="http://host.docker.internal:8030/uc3/compliance/ppe-summary",
         alias="UC3_PPE_METRICS_URL",
     )
 
