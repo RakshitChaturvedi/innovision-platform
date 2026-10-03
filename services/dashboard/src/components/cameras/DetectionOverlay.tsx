@@ -9,6 +9,9 @@ interface DetectionOverlayProps {
   height: number;
 }
 
+const OVERLAY_POLL_MS = Number(import.meta.env.VITE_OVERLAY_POLL_MS) || 2000;
+const STALE_THRESHOLD_MS = 5000;
+
 export default function DetectionOverlay({
   cameraId,
   width,
@@ -16,34 +19,45 @@ export default function DetectionOverlay({
 }: DetectionOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [age, setAge] = useState<number | null>(null);
+  const [isStale, setIsStale] = useState<boolean>(false);
 
   const { data } = useQuery({
     queryKey: ["detections", cameraId],
     queryFn: () => getLatestDetections(cameraId),
-    refetchInterval: 2000,
+    refetchInterval: OVERLAY_POLL_MS,
     // Don't throw on error — overlay is best-effort
     retry: false,
   });
 
-  // Tick every 100ms to keep the age counter visibly counting up
+  // Tick every 100ms to keep the age counter visibly counting up and track staleness
   useEffect(() => {
-    if (!data?.timestamp) {
+    if (!data) {
       setAge(null);
+      setIsStale(false);
       return;
     }
 
-    const fetchedAt = new Date(data.timestamp as string).getTime();
+    const fetchedAt = data.timestamp
+      ? new Date(data.timestamp as string).getTime()
+      : Date.now();
 
-    const id = setInterval(() => {
-      setAge(
-        Math.round((Date.now() - fetchedAt) / 100) / 10,
-      );
-    }, 100);
+    const updateAge = () => {
+      const elapsedMs = Date.now() - fetchedAt;
+      if (elapsedMs > STALE_THRESHOLD_MS) {
+        setIsStale(true);
+      } else {
+        setIsStale(false);
+      }
+      setAge(Math.round(elapsedMs / 100) / 10);
+    };
+
+    updateAge();
+    const id = setInterval(updateAge, 100);
 
     return () => clearInterval(id);
-  }, [data?.timestamp]);
+  }, [data]);
 
-  // Redraw canvas whenever detections or dimensions change
+  // Redraw canvas whenever detections, dimensions, or staleness changes
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -53,6 +67,9 @@ export default function DetectionOverlay({
 
     // Clear previous frame
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Clear bounding boxes if response is older than 5s
+    if (isStale) return;
 
     const detections = data?.detections ?? [];
     if (detections.length === 0) return;
@@ -80,7 +97,7 @@ export default function DetectionOverlay({
       ctx.fillStyle = detection.color ?? "#00ff00";
       ctx.fillText(detection.label, px1, py1 > 16 ? py1 - 4 : py1 + 14);
     }
-  }, [data, width, height]);
+  }, [data, width, height, isStale]);
 
   return (
     <div
@@ -102,11 +119,11 @@ export default function DetectionOverlay({
             left: 8,
             margin: 0,
             fontSize: "11px",
-            color: "#fff",
+            color: isStale ? "#ff4d4f" : "#fff",
             textShadow: "0 0 4px #000",
           }}
         >
-          Detection age: {age.toFixed(1)}s
+          Detection age: {age.toFixed(1)}s {isStale ? "(stale)" : ""}
         </p>
       )}
     </div>
