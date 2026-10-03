@@ -52,14 +52,15 @@ def seed_cameras(sync_db_url: str) -> None:
     seed_sql = text("""
         INSERT INTO cameras (id, name, location, status, use_cases, rtsp_url)
         VALUES
-            ('00000000-0000-0000-0000-000000000001', 'Test Camera UC1', 'Integration Test', 'online', ARRAY['uc1'], '/app/test_data/videos/uc1.mp4'),
-            ('00000000-0000-0000-0000-000000000002', 'Test Camera UC2', 'Integration Test', 'online', ARRAY['uc2'], '/app/test_data/videos/uc2.mp4'),
-            ('00000000-0000-0000-0000-000000000003', 'Test Camera UC3', 'Integration Test', 'online', ARRAY['uc3'], '/app/test_data/videos/uc3.mp4'),
-            ('00000000-0000-0000-0000-000000000004', 'Camera 4 (UC4 Demo)', 'Vehicle Gate B', 'online', ARRAY['uc4'], '/app/test_data/videos/uc4.mp4')
+            ('00000000-0000-0000-0000-000000000001', 'Camera 1 (Floor A)', 'Shop Floor A', 'online', ARRAY['uc1'], '/app/test_data/videos/uc1.mp4'),
+            ('00000000-0000-0000-0000-000000000002', 'Camera 2 (Boiler Room)', 'Boiler Room West', 'online', ARRAY['uc2'], '/app/test_data/videos/uc2.mp4'),
+            ('00000000-0000-0000-0000-000000000003', 'Camera 3 (Safety Zone)', 'Assembly Bay 3', 'online', ARRAY['uc3'], '/app/test_data/videos/uc3.mp4'),
+            ('00000000-0000-0000-0000-000000000004', 'Camera 4 (Gate Perimeter)', 'Vehicle Gate B', 'online', ARRAY['uc4'], '/app/test_data/videos/uc4.mp4')
         ON CONFLICT (id) DO UPDATE SET
+            name = EXCLUDED.name,
+            location = EXCLUDED.location,
             status = 'online',
-            rtsp_url = EXCLUDED.rtsp_url
-        WHERE cameras.rtsp_url IS NULL;
+            rtsp_url = EXCLUDED.rtsp_url;
     """)
     with engine.begin() as conn:
         conn.execute(seed_sql)

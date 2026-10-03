@@ -305,62 +305,114 @@ export default function DetectionModule() {
                 <div style={{ display: "flex", gap: "12px", marginBottom: "16px", flexWrap: "wrap" }}>
                   <div style={{ padding: "8px 12px", background: "var(--surface-raised)", borderRadius: "6px" }}>
                     <span style={{ fontSize: "11px", color: "var(--text-muted)", display: "block" }}>MODEL</span>
-                    <strong style={{ fontSize: "13px" }}>UC2 Fire/Smoke/Sparks</strong>
+                    <strong style={{ fontSize: "13px" }}>YOLOv8 best.pt (UC2)</strong>
                   </div>
                   <div style={{ padding: "8px 12px", background: "var(--surface-raised)", borderRadius: "6px" }}>
                     <span style={{ fontSize: "11px", color: "var(--text-muted)", display: "block" }}>STATUS</span>
-                    <strong style={{ fontSize: "13px", color: imageResult.has_alert ? "var(--danger)" : "var(--success)" }}>
-                      {imageResult.has_alert ? "🚨 ALERT TRIGGERED" : "✅ CLEAR"}
-                    </strong>
+                    {imageResult.hazard_detected || imageResult.has_alert ? (
+                      <strong style={{ fontSize: "13px", color: "#e53e3e" }}>
+                        {imageResult.detections.some((d) => (d.class_name || d.class) === "fire")
+                          ? "🔥 FIRE DETECTED"
+                          : imageResult.detections.some((d) => (d.class_name || d.class) === "smoke")
+                          ? "💨 SMOKE DETECTED"
+                          : "✨ SPARKS DETECTED"}
+                      </strong>
+                    ) : (
+                      <strong style={{ fontSize: "13px", color: "var(--success)" }}>
+                        ✅ NO HAZARD DETECTED
+                      </strong>
+                    )}
                   </div>
                   <div style={{ padding: "8px 12px", background: "var(--surface-raised)", borderRadius: "6px" }}>
                     <span style={{ fontSize: "11px", color: "var(--text-muted)", display: "block" }}>COUNT</span>
-                    <strong style={{ fontSize: "13px" }}>{imageResult.detection_count} detections</strong>
+                    <strong style={{ fontSize: "13px" }}>{imageResult.detection_count ?? imageResult.detections?.length ?? 0} detections</strong>
                   </div>
                 </div>
 
-                {imageResult.annotated_image_base64 && (
+                {(imageResult.annotated_image || imageResult.annotated_image_base64) && (
                   <div style={{ marginBottom: "16px", borderRadius: "6px", overflow: "hidden", border: "1px solid var(--border)" }}>
                     <img
-                      src={`data:image/jpeg;base64,${imageResult.annotated_image_base64}`}
+                      src={
+                        imageResult.annotated_image?.startsWith("data:")
+                          ? imageResult.annotated_image
+                          : `data:image/jpeg;base64,${imageResult.annotated_image_base64 || imageResult.annotated_image}`
+                      }
                       alt="Annotated detection"
-                      style={{ width: "100%", height: "auto", maxHeight: "320px", objectFit: "contain", background: "#000" }}
+                      style={{ width: "100%", height: "auto", maxHeight: "360px", objectFit: "contain", background: "#000" }}
                     />
                   </div>
                 )}
 
                 <div>
                   <h4 style={{ margin: "0 0 8px 0", fontSize: "13px", color: "var(--text-secondary)", textTransform: "uppercase" }}>
-                    Detections
+                    Detections ({imageResult.detections.length})
                   </h4>
                   {imageResult.detections.length === 0 ? (
-                    <p style={{ fontSize: "13px", color: "var(--text-muted)" }}>No hazards detected in this image.</p>
+                    <p style={{ fontSize: "13px", color: "var(--text-muted)" }}>✅ No hazards detected in this image.</p>
                   ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                      {imageResult.detections.map((d, idx) => (
-                        <div
-                          key={idx}
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            padding: "8px 12px",
-                            background: "var(--surface-raised)",
-                            borderRadius: "6px",
-                            borderLeft: `4px solid ${d.class_name === "fire" ? "#e53e3e" : d.class_name === "smoke" ? "#805ad5" : "#dd6b20"}`,
-                          }}
-                        >
-                          <div>
-                            <strong style={{ textTransform: "capitalize", fontSize: "14px" }}>{d.class_name}</strong>
-                            <span style={{ fontSize: "11px", color: "var(--text-muted)", marginLeft: "8px" }}>
-                              Box: [{d.bbox.join(", ")}]
+                    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                      {imageResult.detections.map((d, idx) => {
+                        const cName = (d.class_name || d.class || "hazard").toLowerCase();
+                        const isFire = cName === "fire";
+                        const isSmoke = cName === "smoke";
+                        const badgeColor = isFire ? "#e53e3e" : isSmoke ? "#805ad5" : "#dd6b20";
+                        const icon = isFire ? "🔥" : isSmoke ? "💨" : "✨";
+
+                        return (
+                          <div
+                            key={idx}
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                              padding: "10px 14px",
+                              background: "var(--surface-raised)",
+                              borderRadius: "6px",
+                              borderLeft: `4px solid ${badgeColor}`,
+                            }}
+                          >
+                            <div>
+                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                <span style={{ fontSize: "16px" }}>{icon}</span>
+                                <strong style={{ textTransform: "uppercase", fontSize: "14px", color: "var(--text-primary)" }}>
+                                  {cName}
+                                </strong>
+                                {d.severity && (
+                                  <span
+                                    style={{
+                                      fontSize: "10px",
+                                      fontWeight: 700,
+                                      padding: "2px 6px",
+                                      borderRadius: "3px",
+                                      background: badgeColor,
+                                      color: "#fff",
+                                      textTransform: "uppercase",
+                                    }}
+                                  >
+                                    {d.severity}
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "4px" }}>
+                                <span>Box: [{d.bbox.join(", ")}]</span>
+                                {d.area_percentage != null && (
+                                  <span style={{ marginLeft: "12px", color: "var(--text-secondary)" }}>
+                                    Occupancy: <strong>{d.area_percentage}%</strong> of frame
+                                  </span>
+                                )}
+                                {d.width && d.height && (
+                                  <span style={{ marginLeft: "12px" }}>
+                                    Dimensions: {d.width}×{d.height}px
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <span style={{ fontWeight: 800, fontSize: "16px", color: badgeColor }}>
+                              {(d.confidence * 100).toFixed(1)}%
                             </span>
                           </div>
-                          <span style={{ fontWeight: 700, fontSize: "14px", color: "var(--text-primary)" }}>
-                            {(d.confidence * 100).toFixed(1)}%
-                          </span>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>

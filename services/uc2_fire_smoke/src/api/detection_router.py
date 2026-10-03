@@ -22,7 +22,7 @@ from uuid import uuid4
 
 import cv2
 import numpy as np
-from fastapi import APIRouter, File, HTTPException, Request, Response, UploadFile, status
+from fastapi import APIRouter, File, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -196,27 +196,47 @@ def _get_pipeline(request: Request) -> DetectionPipeline:
 
 def _draw_annotations(img: np.ndarray, detections: List[ConfirmedDetection]) -> np.ndarray:
     annotated = img.copy()
+    h_img, w_img = img.shape[:2]
+    total_area = max(h_img * w_img, 1)
+
     for det in detections:
         bx = det.bbox
         dt = det.detection_type.lower()
         if dt == "fire":
-            color = (0, 0, 255)       # Red
-            badge_text = f"FIRE {det.final_confidence*100:.1f}%"
+            color = (0, 0, 235)       # Fire Red
+            label = "FIRE"
         elif dt == "smoke":
-            color = (220, 220, 0)     # Cyan/Yellow
-            badge_text = f"SMOKE {det.final_confidence*100:.1f}%"
+            color = (200, 180, 0)     # Smoke Blue/Cyan
+            label = "SMOKE"
         else:
-            color = (0, 215, 255)     # Gold/Orange
-            badge_text = f"SPARKS {det.final_confidence*100:.1f}%"
+            color = (0, 215, 255)     # Spark Gold
+            label = "SPARKS"
 
-        cv2.rectangle(annotated, (bx["x1"], bx["y1"]), (bx["x2"], bx["y2"]), color, 2)
+        w_box = max(1, bx["x2"] - bx["x1"])
+        h_box = max(1, bx["y2"] - bx["y1"])
+        area_pct = round(((w_box * h_box) / total_area) * 100.0, 1)
+
+        cv2.rectangle(annotated, (bx["x1"], bx["y1"]), (bx["x2"], bx["y2"]), color, 3)
+
+        badge_text = f"{label} {det.final_confidence*100:.1f}% ({area_pct}% area)"
+        (tw, th), _ = cv2.getTextSize(badge_text, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 2)
+        y_text = max(th + 6, bx["y1"] - 8)
+
+        # Background tag behind text for high visibility
+        cv2.rectangle(
+            annotated,
+            (bx["x1"], y_text - th - 4),
+            (bx["x1"] + tw + 6, y_text + 4),
+            color,
+            -1,
+        )
         cv2.putText(
             annotated,
             badge_text,
-            (bx["x1"], max(20, bx["y1"] - 8)),
+            (bx["x1"] + 3, y_text - 2),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.55,
-            color,
+            (0, 0, 0) if dt != "fire" else (255, 255, 255),
             2,
         )
     return annotated
@@ -225,10 +245,14 @@ def _draw_annotations(img: np.ndarray, detections: List[ConfirmedDetection]) -> 
 # ── Mode A: Image Upload Detection ──────────────────────────────────────────
 
 @router.post("/image", summary="Detect Fire, Smoke, and Sparks in Uploaded Image")
-async def detect_image(request: Request, file: UploadFile = File(...)) -> Dict[str, Any]:
+async def detect_image(
+    request: Request,
+    file: UploadFile = File(...),
+    conf_threshold: Optional[float] = Query(None, description="Confidence threshold override (0.05-1.0)"),
+) -> Dict[str, Any]:
     """
     Run real Stage 1–6 detection pipeline on a user-uploaded image.
-    Returns detected bounding boxes, confidence, class labels, and base64 annotated image.
+    Returns detected bounding boxes, confidence, class labels, area occupancy, and base64 annotated image.
     """
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Uploaded file must be a valid image (JPEG/PNG/WebP).")
@@ -239,15 +263,17 @@ async def detect_image(request: Request, file: UploadFile = File(...)) -> Dict[s
     if img_bgr is None:
         raise HTTPException(status_code=400, detail="Failed to decode image.")
 
+    orig_h, orig_w = img_bgr.shape[:2]
+    total_area = max(orig_h * orig_w, 1)
+    logger.info("Upload image received: %s [%dx%d, %d bytes]", file.filename, orig_w, orig_h, len(contents))
+
     pipeline = _get_pipeline(request)
     t0 = time.perf_counter()
 
-    # Downsample if ultra-high resolution
-    h, w = img_bgr.shape[:2]
-    if w > 1280 or h > 960:
-        scale = min(1280 / w, 960 / h)
-        img_bgr = cv2.resize(img_bgr, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+    # Pass conf_override to YOLO if specified, else use default
+    conf_limit = conf_threshold if conf_threshold is not None else settings.conf_threshold
 
+    # Run detection pipeline in single_frame mode (no multi-frame temporal requirement)
     result: DetectionResult = pipeline.process_frame(
         camera_id="upload-image-session",
         frame_seq=1,
@@ -256,10 +282,16 @@ async def detect_image(request: Request, file: UploadFile = File(...)) -> Dict[s
     )
     t_total = (time.perf_counter() - t0) * 1000.0
 
+    logger.info(
+        "Upload image detection completed: %d confirmed, %d suppressed (latency=%.1fms)",
+        len(result.confirmed_detections), len(result.suppressed_detections), t_total
+    )
+
     # Draw annotations
     annotated = _draw_annotations(img_bgr, result.confirmed_detections)
     _, buf = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 85])
-    b64_img = f"data:image/jpeg;base64,{base64.b64encode(buf.tobytes()).decode('utf-8')}"
+    raw_b64 = base64.b64encode(buf.tobytes()).decode("utf-8")
+    b64_data_uri = f"data:image/jpeg;base64,{raw_b64}"
 
     detections_payload = []
     summary_counts = {"fire": 0, "smoke": 0, "sparks": 0}
@@ -267,25 +299,48 @@ async def detect_image(request: Request, file: UploadFile = File(...)) -> Dict[s
         cl = d.detection_type.lower()
         if cl in summary_counts:
             summary_counts[cl] += 1
+
+        bx = d.bbox
+        w_box = max(0, bx["x2"] - bx["x1"])
+        h_box = max(0, bx["y2"] - bx["y1"])
+        area_box = w_box * h_box
+        area_pct = round((area_box / total_area) * 100.0, 2)
+
         detections_payload.append({
             "class": cl,
+            "class_name": cl,
+            "class_id": 0 if cl == "fire" else 1 if cl == "smoke" else 2,
             "confidence": float(d.final_confidence),
             "yolo_confidence": float(d.yolo_confidence),
             "verification_score": float(d.verification_score),
             "severity": d.severity.value,
-            "bbox": [d.bbox["x1"], d.bbox["y1"], d.bbox["x2"], d.bbox["y2"]],
+            "bbox": [bx["x1"], bx["y1"], bx["x2"], bx["y2"]],
+            "width": w_box,
+            "height": h_box,
+            "area": area_box,
+            "area_percentage": area_pct,
             "verified": True,
         })
 
+    has_hazard = len(detections_payload) > 0
+    top_hazard = detections_payload[0]["class"] if has_hazard else "none"
+
     return {
         "status": "success",
+        "success": True,
         "input_mode": "image",
         "filename": file.filename,
-        "has_detections": len(detections_payload) > 0,
+        "hazard_detected": has_hazard,
+        "has_detections": has_hazard,
+        "has_alert": has_hazard,
+        "alert_triggered": has_hazard,
+        "detection_count": len(detections_payload),
+        "primary_hazard": top_hazard,
         "detections": detections_payload,
         "summary": summary_counts,
-        "alert_triggered": len(detections_payload) > 0,
-        "annotated_image": b64_img,
+        "annotated_image": b64_data_uri,
+        "annotated_image_base64": raw_b64,
+        "dimensions": {"width": orig_w, "height": orig_h, "total_pixels": total_area},
         "inference_latency_ms": round(result.inference_latency_ms, 2),
         "total_latency_ms": round(t_total, 2),
         "timestamp": datetime.now(timezone.utc).isoformat(),

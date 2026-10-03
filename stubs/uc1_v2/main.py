@@ -21,8 +21,11 @@ import httpx
 import numpy as np
 import redis.asyncio as aioredis
 from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 from redis.exceptions import ResponseError
 from ultralytics import YOLO
+
+latest_frame_jpeg: bytes | None = None
 
 
 # ─── Logging ──────────────────────────────────────────────────────
@@ -549,6 +552,11 @@ async def process_message(
         frame,
     )
 
+    global latest_frame_jpeg
+    _ok, _buf = cv2.imencode(".jpg", _annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+    if _ok:
+        latest_frame_jpeg = _buf.tobytes()
+
     detection_ms = (
         time.perf_counter()
         - detection_start
@@ -800,6 +808,23 @@ app = FastAPI(
 @app.get("/api/latest")
 async def get_latest():
     return latest_result
+
+
+@app.get("/api/video")
+async def get_video():
+    async def _stream():
+        while True:
+            if latest_frame_jpeg:
+                yield (
+                    b"--frame\r\n"
+                    b"Content-Type: image/jpeg\r\n\r\n" + latest_frame_jpeg + b"\r\n"
+                )
+            await asyncio.sleep(0.1)
+
+    return StreamingResponse(
+        _stream(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+    )
 
 
 @app.get("/api/pipeline")

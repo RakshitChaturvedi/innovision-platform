@@ -4,18 +4,38 @@ const UC2_BASE_URL =
   import.meta.env.VITE_UC2_STREAM_URL || "http://localhost:8030";
 
 export interface DetectionItem {
-  class_id: number;
+  class_id?: number;
+  class: string;
   class_name: string;
   confidence: number;
+  yolo_confidence?: number;
+  verification_score?: number;
+  severity?: string;
   bbox: [number, number, number, number];
+  width?: number;
+  height?: number;
+  area?: number;
+  area_percentage?: number;
+  verified?: boolean;
 }
 
 export interface ImageDetectionResponse {
   success: boolean;
-  detections: DetectionItem[];
-  annotated_image_base64: string | null;
-  detection_count: number;
+  status?: string;
+  filename?: string;
+  hazard_detected: boolean;
+  has_detections: boolean;
   has_alert: boolean;
+  alert_triggered?: boolean;
+  detection_count: number;
+  primary_hazard?: string;
+  detections: DetectionItem[];
+  summary?: Record<string, number>;
+  annotated_image?: string | null;
+  annotated_image_base64: string | null;
+  dimensions?: { width: number; height: number; total_pixels: number };
+  inference_latency_ms?: number;
+  total_latency_ms?: number;
   timestamp: string;
   error?: string;
 }
