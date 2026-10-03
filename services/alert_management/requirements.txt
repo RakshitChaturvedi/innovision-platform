@@ -4,6 +4,7 @@ pydantic
 pydantic-settings
 redis
 sqlalchemy
+greenlet
 asyncpg
 PyJWT
 python-socketio

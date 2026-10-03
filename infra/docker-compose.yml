@@ -264,6 +264,7 @@ services:
       SMTP_USER: ${SMTP_USER}
       SMTP_PASSWORD: ${SMTP_PASSWORD}
       SMTP_FROM: ${SMTP_FROM}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-false}
 
     depends_on:
       postgres:
@@ -300,7 +301,7 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/2
 
       UC1_COMPLIANCE_URL: http://uc1_api:8000/uc1/compliance/readiness
-      UC3_PPE_METRICS_URL: http://uc3_api:8000/uc3/compliance/ppe-summary
+      UC3_PPE_METRICS_URL: ${UC3_PPE_METRICS_URL:-http://host.docker.internal:8030/uc3/compliance/ppe-summary}
 
     depends_on:
       redis:
