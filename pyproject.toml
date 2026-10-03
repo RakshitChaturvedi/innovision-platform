@@ -28,3 +28,6 @@ dependencies = [
     "uvicorn>=0.34.0",
 ]
 
+[tool.pytest.ini_options]
+norecursedirs = ["node_modules", ".venv", "dist", ".git", "services/dashboard/node_modules"]
+

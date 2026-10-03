@@ -537,7 +537,7 @@ function CameraModal({
                               : "",
                           }));
                         }}
-                        placeholder="uc5.mp4"
+                        placeholder="uc2.mp4"
                         required
                       />
 

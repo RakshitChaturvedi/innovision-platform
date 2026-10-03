@@ -243,15 +243,15 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-changeme}
       CELERY_BROKER_URL: redis://redis:6379/2
-      UC1_COMPLIANCE_URL: http://uc1_worker:8021/health
-      UC3_PPE_METRICS_URL: http://camera_registry:8011/cameras
+      UC1_COMPLIANCE_URL: ""
+      UC3_PPE_METRICS_URL: http://uc3_worker:8000/uc3/compliance/ppe-summary
     depends_on:
       platform_init: { condition: service_completed_successfully }
     command: ["celery", "-A", "services.reporting.src.tasks.celery_app", "worker", "--loglevel=INFO"]
     restart: unless-stopped
 
-  # ── ANALYTICS USE CASES (UC1 – UC5) ───────────────────────────────────────
-  # Real UC2: Fire, Smoke, and Sparks AI Analytics
+  # ── ACTIVE ANALYTICS USE CASES (UC2, UC3/PART) ───────────────────────────
+  # Real UC2: Fire, Smoke, and Sparks AI Analytics & Detection Module
   uc2_fire_smoke:
     build:
       context: .
@@ -284,72 +284,31 @@ services:
       start_period: 15s
     restart: unless-stopped
 
-  # UC1: Worker Count / Person Detection
-  uc1_worker:
-    build:
-      context: .
-      dockerfile: stubs/uc1_v2/Dockerfile
-    container_name: innovision-uc1-worker
-    ports:
-      - "8021:8021"
-    environment:
-      REDIS_URL: redis://redis:6379
-      TEST_CAMERA_ID: "00000000-0000-0000-0000-000000000001"
-      REDIS_CONSUMER_GROUP: uc1_v2_group
-      REDIS_CONSUMER_NAME: uc1_v2_worker_1
-      YOLO_MODEL: yolov8n.pt
-      YOLO_CONFIDENCE: "0.35"
-    depends_on:
-      platform_init: { condition: service_completed_successfully }
-      ingestion:     { condition: service_healthy }
-    restart: unless-stopped
-
-  # UC3: PPE Compliance
+  # UC3 / PART: PPE & Industrial Safety Compliance Detection
   uc3_worker:
     build:
       context: .
       dockerfile: stubs/uc3_stub/Dockerfile
     container_name: innovision-uc3-worker
+    ports:
+      - "8031:8000"
     environment:
       UC_ID: uc3
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-changeme}
       TEST_CAMERA_ID: "00000000-0000-0000-0000-000000000003"
-      ALERT_INTERVAL_SECONDS: "12"
     depends_on:
       platform_init: { condition: service_completed_successfully }
-    restart: unless-stopped
-
-  # UC4: Vehicle / Speed Detection
-  uc4_worker:
-    build:
-      context: .
-      dockerfile: stubs/uc4_stub/Dockerfile
-    container_name: innovision-uc4-worker
-    environment:
-      UC_ID: uc4
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      TEST_CAMERA_ID: "00000000-0000-0000-0000-000000000004"
-      ALERT_INTERVAL_SECONDS: "15"
-    depends_on:
-      platform_init: { condition: service_completed_successfully }
-    restart: unless-stopped
-
-  # UC5: Hazardous Area Intrusion & Chemical Spill Detection
-  uc5_worker:
-    build:
-      context: .
-      dockerfile: stubs/uc5_stub/Dockerfile
-    container_name: innovision-uc5-worker
-    environment:
-      UC_ID: uc5
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      TEST_CAMERA_ID: "00000000-0000-0000-0000-000000000005"
-      ALERT_INTERVAL_SECONDS: "18"
-    depends_on:
-      platform_init: { condition: service_completed_successfully }
+      ingestion:     { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     restart: unless-stopped
 
   # ── OPERATOR DASHBOARD UI ────────────────────────────────────────────────
@@ -364,6 +323,7 @@ services:
         VITE_SOCKET_URL: http://localhost:8010
         VITE_INGESTION_API_URL: http://localhost:8020
         VITE_UC2_STREAM_URL: http://localhost:8030
+        VITE_UC3_API_URL: http://localhost:8031
     container_name: innovision-dashboard
     ports:
       - "3000:3000"

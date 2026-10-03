@@ -55,8 +55,7 @@ def seed_cameras(sync_db_url: str) -> None:
             ('00000000-0000-0000-0000-000000000001', 'Test Camera UC1', 'Integration Test', 'online', ARRAY['uc1'], '/app/test_data/videos/uc1.mp4'),
             ('00000000-0000-0000-0000-000000000002', 'Test Camera UC2', 'Integration Test', 'online', ARRAY['uc2'], '/app/test_data/videos/uc2.mp4'),
             ('00000000-0000-0000-0000-000000000003', 'Test Camera UC3', 'Integration Test', 'online', ARRAY['uc3'], '/app/test_data/videos/uc3.mp4'),
-            ('00000000-0000-0000-0000-000000000004', 'Test Camera UC4', 'Integration Test', 'online', ARRAY['uc4'], '/app/test_data/videos/uc4.mp4'),
-            ('00000000-0000-0000-0000-000000000005', 'Test Camera UC5', 'Integration Test', 'online', ARRAY['uc5'], '/app/test_data/videos/uc5.mp4')
+            ('00000000-0000-0000-0000-000000000004', 'Test Camera UC4', 'Integration Test', 'online', ARRAY['uc4'], '/app/test_data/videos/uc4.mp4')
         ON CONFLICT (id) DO UPDATE SET
             status = 'online',
             rtsp_url = EXCLUDED.rtsp_url
@@ -64,7 +63,7 @@ def seed_cameras(sync_db_url: str) -> None:
     """)
     with engine.begin() as conn:
         conn.execute(seed_sql)
-    logger.info("✓ Seed cameras 1-5 reconciled with active demo stream paths.")
+    logger.info("✓ Seed cameras reconciled with active demo stream paths.")
 
 def init_minio(endpoint: str, access_key: str, secret_key: str, max_retries: int = 30) -> None:
     logger.info(f"Connecting to MinIO ({endpoint})...")

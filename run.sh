@@ -2,7 +2,7 @@
 set -e
 
 # ========================================================
-#   Innovision Platform + UC2/UC3/UC4/UC5 One-Command Runner
+#   Innovision Platform + UC2 + UC3/PART One-Command Runner
 # ========================================================
 
 echo "[1/3] Checking environment configuration..."
@@ -25,9 +25,10 @@ echo "========================================================"
 echo "  Innovision Platform Successfully Started!"
 echo "========================================================"
 echo "  Dashboard UI:       http://localhost:3000"
+echo "  Detection Module:   http://localhost:3000/detection"
+echo "  UC2 Fire/Smoke/Sparks: http://localhost:8030/health"
+echo "  UC3/PART PPE Safety:   http://localhost:8031/health"
 echo "  Camera Ingestion:   http://localhost:8020"
-echo "  UC2 Fire/Smoke:     http://localhost:8030/health"
-echo "  UC1 Person Counter: http://localhost:8021"
 echo "  Alert Management:   http://localhost:8010/docs"
 echo "  Camera Registry:    http://localhost:8011/docs"
 echo "  Auth Service:       http://localhost:8000/docs"

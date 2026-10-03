@@ -18,6 +18,8 @@ import { ProtectedRoute } from "./ProtectedRoute";
 import { RoleRoute } from "./RoleRoute";
 import CameraAdministration from "@/pages/admin/CameraAdministration";
 
+import DetectionModule from "@/pages/DetectionModule";
+
 export function AppRoutes() {
   return (
     <BrowserRouter>
@@ -31,6 +33,7 @@ export function AppRoutes() {
           <Route element={<AppLayout />}>
             {/* Viewer+ */}
             <Route path="/" element={<MasterDashboard />} />
+            <Route path="/detection" element={<DetectionModule />} />
             <Route
               path="/cameras/:cameraId"
               element={<CameraDetail />}

@@ -1,6 +1,6 @@
 # Innovision AI Surveillance & Incident Platform
 
-Integrated Video Ingestion, Analytics (UC1–UC5), Alert Management, and Incident Escalation Platform.
+Integrated Video Ingestion, Analytics (UC2 Fire/Smoke/Sparks, UC3/PART PPE Safety), Detection Module, Alert Management, and Incident Escalation Platform.
 
 ---
 
@@ -15,8 +15,8 @@ A completely new machine with **only Git and Docker** can run the entire platfor
 ### 2. Clone & Start
 
 ```bash
-# Step 1: Clone the repository
-git clone https://github.com/RakshitChaturvedi/innovision-platform.git
+# Step 1: Clone the repository (final branch)
+git clone -b final https://github.com/RakshitChaturvedi/innovision-platform.git
 cd innovision-platform
 
 # Step 2: Create environment configuration
@@ -38,26 +38,24 @@ docker compose up -d --build
 1. **Infrastructure Provisioning**: PostgreSQL 16 (pgvector), Redis 7, MinIO S3, Nginx, Prometheus, Grafana, and Loki start with healthchecks.
 2. **Automated Platform Bootstrap (`platform_init`)**:
    - Runs Alembic migrations (`alembic upgrade head`) to create tables, indexes, and user schemas.
-   - Reconciles seed cameras (Cameras 1–5) and points them to built-in demo video files (`/app/test_data/videos/uc*.mp4`).
+   - Reconciles seed cameras (pointing to built-in demo video files e.g. `/app/test_data/videos/uc2.mp4` for UC2).
    - Automatically provisions all MinIO buckets (`innovision-frames`, `innovision-snapshots`, `innovision-evidence`, `innovision-reports`).
    - Automatically initializes all Redis streams and consumer groups (`alerts:live`, `incidents:live`, `notifications:live`, `uc2_fire_smoke_cg`).
 3. **Core Services**: `auth`, `camera_registry`, `ingestion`, `alert_management`, `incident_management`, `notification`, `audit`, and `reporting_worker` start.
-4. **Analytics Workers**:
-   - **UC2**: Real Fire, Smoke, and Sparks YOLOv8 Analytics (`uc2_fire_smoke`) on port **8030**.
-   - **UC1**: Worker Count / Person Detection (`uc1_worker`) on port **8021**.
-   - **UC3**: PPE Compliance Worker (`uc3_worker`).
-   - **UC4**: Speed & Vehicle Detection Worker (`uc4_worker`).
-   - **UC5**: Hazardous Area Intrusion & Chemical Spill Worker (`uc5_worker`).
-5. **Operator Dashboard**: React Web UI compiled in Docker and served on port **3000**.
+4. **Active Analytics Engines**:
+   - **UC2**: Real Fire, Smoke, and Sparks YOLOv8 Analytics & Detection Module (`uc2_fire_smoke`) on port **8030**.
+   - **UC3 / PART**: PPE Compliance & Industrial Safety Worker (`uc3_worker`) on port **8031**.
+5. **Operator Dashboard**: React Web UI compiled in Docker and served on port **3000** with Detection Module UI and live hazard monitoring.
 
 ### 4. Service URL Cheat Sheet
 
 | Service | Host URL | Description | Default Credentials |
 | :--- | :--- | :--- | :--- |
 | **Operator Dashboard** | `http://localhost:3000` | Unified React SOC Dashboard | `admin@innovision.com` / `changeme` |
+| **Detection Module UI** | `http://localhost:3000/detection` | Interactive Image, Video & RTSP detection | None |
 | **UC2 Fire/Smoke API** | `http://localhost:8030/health` | Fire, Smoke, Sparks Status & Metrics | None |
 | **UC2 Live Stream Preview** | `http://localhost:8030/preview/00000000-0000-0000-0000-000000000002` | Live OpenCV annotated visual feed | None |
-| **UC1 Person Counter UI** | `http://localhost:8021` | Live person bounding boxes & count | None |
+| **UC3 / PART PPE Safety API** | `http://localhost:8031/health` | PPE Compliance inspection & stream | None |
 | **Camera Ingestion API** | `http://localhost:8020/health` | Stream decoders & frame cache | None |
 | **Camera Registry API** | `http://localhost:8011/docs` | Swagger API for cameras & RTSP URLs | Bearer JWT |
 | **Alert Management API** | `http://localhost:8010/docs` | Alert ingestion & persistence API | Bearer JWT |
@@ -76,20 +74,21 @@ Camera Registry (Port 8011)
       ▼
 Ingestion Service (Port 8020)
       │
-      ├── FFmpeg / Stream Decoder (640x480 Area Downsampling)
+      ├── FFmpeg / Stream Decoder (640x480 Downsampling)
       ├── Frame Sampler & JPEG Encoder
       ├── Redis Frame Cache (frames:{camera_id})
       └── MinIO Frame Store (innovision-frames)
                 │
-         ┌──────┴────────────────────────────────┬─────────────────┐
-         ▼                                       ▼                 ▼
-   UC1 Worker (Port 8021)              UC2 Fire/Smoke (Port 8030)  UC3/UC4/UC5
-   YOLO Person Detection               YOLO Fire/Smoke/Sparks      PPE/Vehicle/Spill
-         │                                       │                 │
-         └───────────────────────┬───────────────┘                 │
-                                 │ AlertEvent JSON                 │
-                                 ▼                                 ▼
-                     Redis Stream: alerts:live ◄───────────────────┘
+         ┌──────┴────────────────────────────────┐
+         ▼                                       ▼
+   UC2 Fire/Smoke (Port 8030)              UC3 / PART (Port 8031)
+   YOLO Fire/Smoke/Sparks + Detection       PPE Compliance & Safety
+   (Image, Video, RTSP APIs)                     │
+         │                                       │
+         └───────────────────────┬───────────────┘
+                                 │ AlertEvent JSON
+                                 ▼
+                     Redis Stream: alerts:live
                                  │
                                  ▼
                    Alert Management (Port 8010)
@@ -98,6 +97,7 @@ Ingestion Service (Port 8020)
                      ▼                       ▼
             PostgreSQL Database      WebSocket / Socket.IO
             (alerts, incidents)      (Namespace: /alerts)
+```
                                              │
                                              ▼
                                   Operator Dashboard (Port 3000)
