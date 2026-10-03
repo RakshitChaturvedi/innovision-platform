@@ -24,9 +24,7 @@ export default function LiveFeed({
   const imgRef = useRef<HTMLImageElement>(null);
   const [imgDimensions, setImgDimensions] = useState({ width: 0, height: 0 });
 
-  const hasDetections = useCases.some((uc) =>
-    ["uc1", "uc2", "uc3", "uc4"].includes(uc.toLowerCase()),
-  );
+  const isUC3 = useCases.includes("uc3");
 
   function handleImgLoad() {
     const img = imgRef.current;
@@ -55,7 +53,7 @@ export default function LiveFeed({
             style={{ display: "block" }}
           />
 
-          {hasDetections && imgDimensions.width > 0 && (
+          {isUC3 && imgDimensions.width > 0 && (
             <DetectionOverlay
               cameraId={cameraId}
               width={imgDimensions.width}
