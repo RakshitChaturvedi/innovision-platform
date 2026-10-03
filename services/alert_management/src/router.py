@@ -52,12 +52,12 @@ async def list_alerts(
     camera_id: str | None = None,
     limit: int = 50,
     offset: int = 0,
-    user: dict = Depends(get_optional_user),
+    user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     conditions, params = [], {"limit": limit, "offset": offset}
 
-    if user and user.get("role") not in ("superadmin", "admin"):
+    if user.get("role") not in ("superadmin", "admin"):
         conditions.append("camera_id = ANY(:allowed_cameras)")
         params["allowed_cameras"] = user.get("camera_ids", [])
 
@@ -82,6 +82,19 @@ async def list_alerts(
 async def acknowledge(
     alert_id: str, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ):
+    row = (await db.execute(
+        text("SELECT * FROM alerts WHERE alert_id = :id"),
+        {"id": alert_id}
+    )).fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    if user.get("role") not in ("superadmin", "admin"):
+        allowed_cameras = [str(c) for c in user.get("camera_ids", [])]
+        if row.camera_id is not None and str(row.camera_id) not in allowed_cameras:
+            raise HTTPException(status_code=403, detail="No access to this camera")
+
     async with db.begin():
         await db.execute(text("""
             UPDATE alerts SET status = 'acknowledged',
@@ -94,9 +107,10 @@ async def acknowledge(
             entity_type="alert", entity_id=alert_id, user_id=user["sub"], session=db
         )
 
-    row = (await db.execute(text("SELECT * FROM alerts WHERE alert_id = :id"),
-                             {"id": alert_id})).fetchone()
-    await push_alert_update(dict(row._mapping))
+    updated = (await db.execute(text("SELECT * FROM alerts WHERE alert_id = :id"),
+                              {"id": alert_id})).fetchone()
+    if updated:
+        await push_alert_update(dict(updated._mapping))
     return {"status": "acknowledged"}
 
 
@@ -104,6 +118,19 @@ async def acknowledge(
 async def resolve(
     alert_id: str, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ):
+    row = (await db.execute(
+        text("SELECT * FROM alerts WHERE alert_id = :id"),
+        {"id": alert_id}
+    )).fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    if user.get("role") not in ("superadmin", "admin"):
+        allowed_cameras = [str(c) for c in user.get("camera_ids", [])]
+        if row.camera_id is not None and str(row.camera_id) not in allowed_cameras:
+            raise HTTPException(status_code=403, detail="No access to this camera")
+
     async with db.begin():
         await db.execute(text("""
             UPDATE alerts SET status = 'resolved',
@@ -116,9 +143,10 @@ async def resolve(
             entity_type="alert", entity_id=alert_id, user_id=user["sub"], session=db
         )
 
-    row = (await db.execute(text("SELECT * FROM alerts WHERE alert_id = :id"),
-                             {"id": alert_id})).fetchone()
-    await push_alert_update(dict(row._mapping))
+    updated = (await db.execute(text("SELECT * FROM alerts WHERE alert_id = :id"),
+                              {"id": alert_id})).fetchone()
+    if updated:
+        await push_alert_update(dict(updated._mapping))
     return {"status": "resolved"}
 
 

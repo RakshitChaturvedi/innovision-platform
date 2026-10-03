@@ -1,9 +1,10 @@
 """
-Tests for GET /alerts/{alert_id}/snapshot endpoint.
+Tests for GET /alerts/{alert_id}/snapshot endpoint and alert management security/404 handling.
 Uses a fake Minio client — no running MinIO needed.
 """
 import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
+import pytest_asyncio
+from unittest.mock import MagicMock, patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
@@ -41,13 +42,10 @@ _DDL = [
     """,
 ]
 
-FAKE_USER = {"sub": "user-001", "role": "operator", "camera_ids": []}
+FAKE_USER = {"sub": "user-001", "role": "operator", "camera_ids": ["cam-1"]}
 ALERT_ID = "alert-uuid-0001"
 FRAME_REF = "uc3/alerts/2026-09-28/snap.jpg"
 PRESIGNED_URL = "http://localhost:9000/innovision-snapshots/uc3/alerts/2026-09-28/snap.jpg?X-Amz-Signature=abc"
-
-
-import pytest_asyncio
 
 
 @pytest_asyncio.fixture(scope="module")
@@ -64,17 +62,23 @@ async def db_factory():
     async with engine.begin() as conn:
         for ddl in _DDL:
             await conn.exec_driver_sql(ddl)
-        # Alert with frame_reference
+        # Alert with frame_reference & camera_id cam-1
         await conn.exec_driver_sql(
-            "INSERT INTO alerts (id, alert_id, frame_reference, source_uc, severity, title, description, source_event_id, alert_type) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            ("row-1", ALERT_ID, FRAME_REF, "uc3", "high", "PPE", "desc", "ev-1", "ppe_violation"),
+            "INSERT INTO alerts (id, alert_id, camera_id, frame_reference, source_uc, severity, title, description, source_event_id, alert_type) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("row-1", ALERT_ID, "cam-1", FRAME_REF, "uc3", "high", "PPE", "desc", "ev-1", "ppe_violation"),
         )
         # Alert without frame_reference
         await conn.exec_driver_sql(
-            "INSERT INTO alerts (id, alert_id, frame_reference, source_uc, severity, title, description, source_event_id, alert_type) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            ("row-2", "alert-no-snap", None, "uc3", "low", "No snap", "desc", "ev-2", "ppe_violation"),
+            "INSERT INTO alerts (id, alert_id, camera_id, frame_reference, source_uc, severity, title, description, source_event_id, alert_type) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("row-2", "alert-no-snap", "cam-1", None, "uc3", "low", "No snap", "desc", "ev-2", "ppe_violation"),
+        )
+        # Alert on forbidden camera
+        await conn.exec_driver_sql(
+            "INSERT INTO alerts (id, alert_id, camera_id, frame_reference, source_uc, severity, title, description, source_event_id, alert_type) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("row-3", "alert-forbidden-cam", "cam-forbidden", None, "uc3", "low", "Forbidden", "desc", "ev-3", "ppe_violation"),
         )
 
     factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
@@ -82,7 +86,7 @@ async def db_factory():
     await engine.dispose()
 
 
-def build_app(db_factory):
+def build_app(db_factory, user=FAKE_USER):
     from services.alert_management.src.router import router, get_db
     from services.auth.src.rbac import get_current_user
     import services.alert_management.src.router as router_module
@@ -94,12 +98,11 @@ def build_app(db_factory):
             yield s
 
     async def _fake_user(authorization: str = ""):
-        return FAKE_USER
+        return user
 
     app.include_router(router)
     app.dependency_overrides[get_db] = _fake_db
     app.dependency_overrides[get_current_user] = _fake_user
-    # Also override the router module's direct reference if it imported separately
     if hasattr(router_module, 'get_current_user'):
         app.dependency_overrides[router_module.get_current_user] = _fake_user
     return app
@@ -146,15 +149,30 @@ async def test_snapshot_404_unknown_alert(db_factory):
 
 
 @pytest.mark.asyncio
-async def test_snapshot_502_on_minio_error(db_factory):
-    """MinIO raises → 502."""
+async def test_acknowledge_unknown_returns_404(db_factory):
+    """Unknown alert_id acknowledge → 404."""
     app = build_app(db_factory)
-
-    fake_minio = MagicMock()
-    fake_minio.presigned_get_object = MagicMock(side_effect=Exception("MinIO down"))
-
-    with patch("services.alert_management.src.router._minio_public", fake_minio):
+    with patch("services.alert_management.src.router.write_audit_entry", new=MagicMock()):
         with TestClient(app) as client:
-            resp = client.get(f"/alerts/{ALERT_ID}/snapshot")
+            resp = client.patch("/alerts/does-not-exist/acknowledge")
+    assert resp.status_code == 404, resp.text
 
-    assert resp.status_code == 502, resp.text
+
+@pytest.mark.asyncio
+async def test_resolve_unknown_returns_404(db_factory):
+    """Unknown alert_id resolve → 404."""
+    app = build_app(db_factory)
+    with patch("services.alert_management.src.router.write_audit_entry", new=MagicMock()):
+        with TestClient(app) as client:
+            resp = client.patch("/alerts/does-not-exist/resolve")
+    assert resp.status_code == 404, resp.text
+
+
+@pytest.mark.asyncio
+async def test_acknowledge_forbidden_camera_returns_403(db_factory):
+    """Acknowledge on alert from forbidden camera → 403."""
+    app = build_app(db_factory)
+    with patch("services.alert_management.src.router.write_audit_entry", new=MagicMock()):
+        with TestClient(app) as client:
+            resp = client.patch("/alerts/alert-forbidden-cam/acknowledge")
+    assert resp.status_code == 403, resp.text

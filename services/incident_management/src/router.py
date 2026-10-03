@@ -34,7 +34,7 @@ async def get_optional_user(authorization: str | None = Header(None)) -> dict | 
 async def list_incidents(
     status: str | None = None,
     assigned_to: str | None = None,
-    user: dict = Depends(get_optional_user),
+    user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     conditions, params = [], {}
