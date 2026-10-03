@@ -134,6 +134,15 @@ async def lifespan(app: FastAPI):
             await redis_client.aclose()
         logger.info("ingestion_service_stopped")
 
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI(title="Innovision Ingestion Service", version="1.0.0-phase2", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.include_router(health_router)
 app.include_router(streaming_router)
