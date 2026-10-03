@@ -21,7 +21,7 @@ const UC1_API_URL =
 
 export default function MasterDashboard() {
   const navigate = useNavigate();
-  const [alertCategory, setAlertCategory] = useState<"all" | "fire" | "smoke" | "sparks" | "uc1" | "uc3">("all");
+  const [alertCategory, setAlertCategory] = useState<"all" | "fire" | "smoke" | "sparks" | "uc1" | "uc3" | "uc4">("all");
 
   // Query Cameras
   const {
@@ -98,9 +98,10 @@ export default function MasterDashboard() {
     return <ErrorState message="Failed to load cameras or system state." />;
   }
 
-  // Derive latest UC2 telemetry
+  // Derive latest UC alerts
   const latestUc2Alert = alerts.find((a) => a.source_uc === "uc2");
   const latestUc3Alert = alerts.find((a) => a.source_uc === "uc3");
+  const latestUc4Alert = alerts.find((a) => a.source_uc === "uc4");
 
   const latestDetectionName = rtspTelemetry?.latest_detections?.[0]?.class_name
     || (latestUc2Alert?.alert_type ? latestUc2Alert.alert_type.replace(/_/g, " ").toUpperCase() : "CLEAR");
@@ -119,6 +120,7 @@ export default function MasterDashboard() {
     if (alertCategory === "sparks") return text.includes("spark");
     if (alertCategory === "uc1") return alert.source_uc === "uc1" || text.includes("people") || text.includes("worker") || text.includes("person");
     if (alertCategory === "uc3") return alert.source_uc === "uc3" || text.includes("ppe") || text.includes("vest") || text.includes("helmet");
+    if (alertCategory === "uc4") return alert.source_uc === "uc4" || text.includes("vehicle") || text.includes("speed");
     return true;
   });
 
@@ -288,6 +290,54 @@ export default function MasterDashboard() {
               <div style={{ padding: "6px 10px", background: "var(--surface-raised)", borderRadius: "4px" }}>
                 <span style={{ color: "var(--text-muted)" }}>Last Event: </span>
                 <strong>{latestUc3Alert ? latestUc3Alert.title : "Active"}</strong>
+              </div>
+            </div>
+          </div>
+
+          {/* UC4 / DEMO ONLY Card */}
+          <div
+            style={{
+              background: "var(--surface)",
+              border: "1px solid var(--border)",
+              borderRadius: "8px",
+              padding: "20px",
+              position: "relative",
+              overflow: "hidden",
+            }}
+          >
+            <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "3px", background: "#9333ea" }} />
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "12px" }}>
+              <h3 style={{ margin: 0, fontSize: "18px", fontWeight: 700, color: "var(--text-primary)" }}>
+                UC4 — Vehicle / Speed
+              </h3>
+              <span
+                style={{
+                  padding: "4px 8px",
+                  borderRadius: "4px",
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  background: "rgba(147, 51, 234, 0.15)",
+                  color: "#c084fc",
+                }}
+              >
+                ● DEMO ONLY
+              </span>
+            </div>
+            <div style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "16px", lineHeight: "1.5" }}>
+              Controlled simulation for vehicle access monitoring and speed violation demonstration. Explicitly isolated demo mode.
+            </div>
+            <div style={{ display: "flex", gap: "12px", fontSize: "12px" }}>
+              <div style={{ padding: "6px 10px", background: "var(--surface-raised)", borderRadius: "4px" }}>
+                <span style={{ color: "var(--text-muted)" }}>Mode: </span>
+                <strong style={{ color: "#c084fc" }}>DEMO ONLY</strong>
+              </div>
+              <div style={{ padding: "6px 10px", background: "var(--surface-raised)", borderRadius: "4px" }}>
+                <span style={{ color: "var(--text-muted)" }}>Domain: </span>
+                <strong>Vehicle / ANPR</strong>
+              </div>
+              <div style={{ padding: "6px 10px", background: "var(--surface-raised)", borderRadius: "4px" }}>
+                <span style={{ color: "var(--text-muted)" }}>Last Event: </span>
+                <strong>{latestUc4Alert ? latestUc4Alert.title : "Ready"}</strong>
               </div>
             </div>
           </div>
@@ -471,7 +521,7 @@ export default function MasterDashboard() {
           </div>
 
           <div style={{ display: "flex", gap: "6px" }}>
-            {(["all", "fire", "smoke", "sparks", "uc1", "uc3"] as const).map((cat) => (
+            {(["all", "fire", "smoke", "sparks", "uc1", "uc3", "uc4"] as const).map((cat) => (
               <button
                 key={cat}
                 type="button"
@@ -479,7 +529,7 @@ export default function MasterDashboard() {
                 style={{ padding: "6px 12px", fontSize: "12px", borderRadius: "4px", textTransform: "capitalize" }}
                 onClick={() => setAlertCategory(cat)}
               >
-                {cat === "uc1" ? "UC1 / PART" : cat === "uc3" ? "UC3 / PART" : cat}
+                {cat === "uc1" ? "UC1 / PART" : cat === "uc3" ? "UC3 / PART" : cat === "uc4" ? "UC4 (Demo)" : cat}
               </button>
             ))}
           </div>
@@ -506,8 +556,9 @@ export default function MasterDashboard() {
               const isSmoke = alert.alert_type?.includes("smoke");
               const isSparks = alert.alert_type?.includes("spark");
               const isUc3 = alert.source_uc === "uc3";
+              const isUc4 = alert.source_uc === "uc4";
 
-              const badgeColor = isFire ? "#e53e3e" : isSmoke ? "#805ad5" : isSparks ? "#dd6b20" : isUc3 ? "#46BD92" : "var(--primary)";
+              const badgeColor = isFire ? "#e53e3e" : isSmoke ? "#805ad5" : isSparks ? "#dd6b20" : isUc3 ? "#46BD92" : isUc4 ? "#9333ea" : "var(--primary)";
 
               return (
                 <div

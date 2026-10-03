@@ -341,6 +341,22 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # UC4: Vehicle / Speed Detection (DEMO ONLY - Controlled Simulation)
+  uc4_worker:
+    build:
+      context: .
+      dockerfile: stubs/uc4_stub/Dockerfile
+    container_name: innovision-uc4-worker
+    environment:
+      UC_ID: uc4
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      TEST_CAMERA_ID: "00000000-0000-0000-0000-000000000004"
+      ALERT_INTERVAL_SECONDS: "30"
+    depends_on:
+      platform_init: { condition: service_completed_successfully }
+    restart: unless-stopped
+
   # ── OPERATOR DASHBOARD UI ────────────────────────────────────────────────
   dashboard:
     build:
