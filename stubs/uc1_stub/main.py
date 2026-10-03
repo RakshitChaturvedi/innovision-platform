@@ -17,10 +17,10 @@ logging.basicConfig(level=logging.INFO, format="%(message)s", handlers=[logging.
 logger = logging.getLogger(__name__)
 
 REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
-REDIS_PORT = int(os.environ.get("REDIS_PORT", "6579"))
+REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
 
 TEST_CAMERA_ID = UUID(os.environ.get("TEST_CAMERA_ID", "00000000-0000-0000-0000-000000000001"))
-ALERT_INTERVAL = int(os.environ.get("ALERT_INTERVAL_SECONDs", "10"))
+ALERT_INTERVAL = int(os.environ.get("ALERT_INTERVAL_SECONDS", "10"))
 
 UC1_ALERT_SCENARIOS = [
     {

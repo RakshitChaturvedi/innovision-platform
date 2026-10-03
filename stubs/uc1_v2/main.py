@@ -296,13 +296,10 @@ async def maybe_fire_alert(
 # ─── Platform Poller ──────────────────────────────────────────────
 
 async def poll_platform_state() -> None:
-
+    logged_auth_warning = False
     async with httpx.AsyncClient(timeout=5.0) as client:
-
         while True:
-
             try:
-
                 alerts_response = await client.get(
                     f"{ALERT_MGMT_URL}/alerts",
                     params={
@@ -311,9 +308,15 @@ async def poll_platform_state() -> None:
                     },
                 )
 
-                alerts_response.raise_for_status()
-
-                alerts = alerts_response.json()
+                if alerts_response.status_code in (401, 403):
+                    if not logged_auth_warning:
+                        logger.warning("stubs_poll_auth_required endpoint=/alerts status=%d", alerts_response.status_code)
+                        logged_auth_warning = True
+                else:
+                    alerts_response.raise_for_status()
+                    alerts = alerts_response.json()
+                    platform_view["alerts"] = alerts
+                    platform_view["platform_reachable"] = True
 
                 incidents_response = await client.get(
                     f"{INCIDENT_MGMT_URL}/incidents",
@@ -322,25 +325,17 @@ async def poll_platform_state() -> None:
                     },
                 )
 
-                incidents_response.raise_for_status()
+                if incidents_response.status_code in (401, 403):
+                    if not logged_auth_warning:
+                        logger.warning("stubs_poll_auth_required endpoint=/incidents status=%d", incidents_response.status_code)
+                        logged_auth_warning = True
+                else:
+                    incidents_response.raise_for_status()
+                    incidents = incidents_response.json()
+                    platform_view["incidents"] = incidents
+                    platform_view["platform_reachable"] = True
 
-                incidents = incidents_response.json()
-
-                platform_view[
-                    "alerts"
-                ] = alerts
-
-                platform_view[
-                    "incidents"
-                ] = incidents
-
-                platform_view[
-                    "platform_reachable"
-                ] = True
-
-                platform_view[
-                    "last_poll_error"
-                ] = None
+                platform_view["last_poll_error"] = None
 
                 last_alert_id = (
                     pipeline_state[

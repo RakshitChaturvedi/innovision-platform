@@ -4,13 +4,15 @@ from .jwt import decode_access_token
 
 class Role(str, Enum):
     SUPERADMIN = "superadmin"
-    ADMIN ="admin"
+    ADMIN = "admin"
     OPERATOR = "operator"
     VIEWER = "viewer"
 
 ROLE_RANK = {Role.VIEWER: 0, Role.OPERATOR: 1, Role.ADMIN: 2, Role.SUPERADMIN: 3}
 
-async def get_current_user(authorization: str = Header(...)) -> dict:
+async def get_current_user(authorization: str | None = Header(None)) -> dict:
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing authorization header")
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Invalid authorization header")
     token = authorization.removeprefix("Bearer ")
