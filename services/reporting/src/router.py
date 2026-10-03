@@ -35,12 +35,13 @@ async def generate(
     async with db.begin():
         await db.execute(text("""
             INSERT INTO reports
-                (id, generated_by, camera_ids, date_range_start, date_range_end, status)
+                (id, generated_by, report_type, camera_ids, date_range_start, date_range_end, status)
             VALUES
-                (:id, :generated_by, :camera_ids, :start, :end, 'pending')
+                (:id, :generated_by, :report_type, :camera_ids, :start, :end, 'pending')
         """), {
             "id": report_id,
             "generated_by": user["sub"],
+            "report_type": report_type,
             "camera_ids": camera_ids or [],
             "start": datetime.fromisoformat(date_start),
             "end": datetime.fromisoformat(date_end),
