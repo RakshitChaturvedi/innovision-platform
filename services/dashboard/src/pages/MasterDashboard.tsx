@@ -16,10 +16,12 @@ const UC2_STREAM_URL =
   import.meta.env.VITE_UC2_STREAM_URL || "http://localhost:8030";
 const UC3_API_URL =
   import.meta.env.VITE_UC3_API_URL || "http://localhost:8031";
+const UC1_API_URL =
+  import.meta.env.VITE_UC1_API_URL || "http://localhost:8021";
 
 export default function MasterDashboard() {
   const navigate = useNavigate();
-  const [alertCategory, setAlertCategory] = useState<"all" | "fire" | "smoke" | "sparks" | "uc3">("all");
+  const [alertCategory, setAlertCategory] = useState<"all" | "fire" | "smoke" | "sparks" | "uc1" | "uc3">("all");
 
   // Query Cameras
   const {
@@ -30,6 +32,20 @@ export default function MasterDashboard() {
     queryKey: ["cameras"],
     queryFn: getCameras,
     refetchInterval: 5000,
+  });
+
+  // Query UC1 Health
+  const { data: uc1Healthy = true } = useQuery({
+    queryKey: ["uc1-health"],
+    queryFn: async () => {
+      try {
+        const res = await axios.get(`${UC1_API_URL}/health`, { timeout: 2000 });
+        return res.data?.status === "ok" || res.data?.status === "healthy";
+      } catch {
+        return false;
+      }
+    },
+    refetchInterval: 4000,
   });
 
   // Query UC2 Health
@@ -52,7 +68,7 @@ export default function MasterDashboard() {
     queryFn: async () => {
       try {
         const res = await axios.get(`${UC3_API_URL}/health`, { timeout: 2000 });
-        return res.data?.status === "ok";
+        return res.data?.status === "ok" || res.data?.status === "healthy";
       } catch {
         return false;
       }
@@ -101,6 +117,7 @@ export default function MasterDashboard() {
     if (alertCategory === "fire") return text.includes("fire");
     if (alertCategory === "smoke") return text.includes("smoke");
     if (alertCategory === "sparks") return text.includes("spark");
+    if (alertCategory === "uc1") return alert.source_uc === "uc1" || text.includes("people") || text.includes("worker") || text.includes("person");
     if (alertCategory === "uc3") return alert.source_uc === "uc3" || text.includes("ppe") || text.includes("vest") || text.includes("helmet");
     return true;
   });
@@ -120,7 +137,7 @@ export default function MasterDashboard() {
             INNOVISION INTEGRATION PLATFORM
           </h1>
           <p className="page-description" style={{ color: "var(--text-secondary)" }}>
-            Multi-hazard AI detection pipeline: UC2 Fire/Smoke/Sparks, UC3/PART PPE monitoring, and Detection Module.
+            Integrated multi-hazard platform: UC1 Worker Count, UC2 Fire/Smoke/Sparks, UC3/PART PPE monitoring, and Detection Module.
           </p>
         </div>
       </header>
@@ -131,6 +148,54 @@ export default function MasterDashboard() {
           USE CASES
         </h2>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: "16px" }}>
+          {/* UC1 / PART Card */}
+          <div
+            style={{
+              background: "var(--surface)",
+              border: "1px solid var(--border)",
+              borderRadius: "8px",
+              padding: "20px",
+              position: "relative",
+              overflow: "hidden",
+            }}
+          >
+            <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "3px", background: "#3182ce" }} />
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "12px" }}>
+              <h3 style={{ margin: 0, fontSize: "18px", fontWeight: 700, color: "var(--text-primary)" }}>
+                UC1 / PART — Worker Count
+              </h3>
+              <span
+                style={{
+                  padding: "4px 8px",
+                  borderRadius: "4px",
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  background: uc1Healthy ? "rgba(70, 189, 146, 0.15)" : "rgba(248, 113, 113, 0.15)",
+                  color: uc1Healthy ? "var(--success)" : "var(--danger)",
+                }}
+              >
+                ● {uc1Healthy ? "RUNNING" : "OFFLINE"}
+              </span>
+            </div>
+            <div style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "16px", lineHeight: "1.5" }}>
+              Autonomous personnel presence monitoring, occupancy counting, and zone intrusion detection using YOLO person analytics.
+            </div>
+            <div style={{ display: "flex", gap: "12px", fontSize: "12px" }}>
+              <div style={{ padding: "6px 10px", background: "var(--surface-raised)", borderRadius: "4px" }}>
+                <span style={{ color: "var(--text-muted)" }}>Detection: </span>
+                <strong style={{ color: "var(--success)" }}>LIVE</strong>
+              </div>
+              <div style={{ padding: "6px 10px", background: "var(--surface-raised)", borderRadius: "4px" }}>
+                <span style={{ color: "var(--text-muted)" }}>Model: </span>
+                <strong>YOLOv8n</strong>
+              </div>
+              <div style={{ padding: "6px 10px", background: "var(--surface-raised)", borderRadius: "4px" }}>
+                <span style={{ color: "var(--text-muted)" }}>Domain: </span>
+                <strong>Worker Presence</strong>
+              </div>
+            </div>
+          </div>
+
           {/* UC2 Card */}
           <div
             style={{
@@ -401,12 +466,12 @@ export default function MasterDashboard() {
               LIVE ALERTS
             </h2>
             <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
-              Real-time events emitted by UC2 detection engine and UC3/PART worker.
+              Real-time events emitted by UC1, UC2 detection engine, and UC3/PART worker.
             </p>
           </div>
 
           <div style={{ display: "flex", gap: "6px" }}>
-            {(["all", "fire", "smoke", "sparks", "uc3"] as const).map((cat) => (
+            {(["all", "fire", "smoke", "sparks", "uc1", "uc3"] as const).map((cat) => (
               <button
                 key={cat}
                 type="button"
@@ -414,7 +479,7 @@ export default function MasterDashboard() {
                 style={{ padding: "6px 12px", fontSize: "12px", borderRadius: "4px", textTransform: "capitalize" }}
                 onClick={() => setAlertCategory(cat)}
               >
-                {cat === "uc3" ? "UC3 / PART" : cat}
+                {cat === "uc1" ? "UC1 / PART" : cat === "uc3" ? "UC3 / PART" : cat}
               </button>
             ))}
           </div>

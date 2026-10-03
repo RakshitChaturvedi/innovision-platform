@@ -243,14 +243,44 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-changeme}
       CELERY_BROKER_URL: redis://redis:6379/2
-      UC1_COMPLIANCE_URL: ""
+      UC1_COMPLIANCE_URL: http://uc1_worker:8021/health
       UC3_PPE_METRICS_URL: http://uc3_worker:8000/uc3/compliance/ppe-summary
     depends_on:
       platform_init: { condition: service_completed_successfully }
     command: ["celery", "-A", "services.reporting.src.tasks.celery_app", "worker", "--loglevel=INFO"]
     restart: unless-stopped
 
-  # ── ACTIVE ANALYTICS USE CASES (UC2, UC3/PART) ───────────────────────────
+  # ── ACTIVE ANALYTICS USE CASES (UC1, UC2, UC3/PART) ──────────────────────
+  # UC1 / PART: Worker Count & Person Detection
+  uc1_worker:
+    build:
+      context: .
+      dockerfile: stubs/uc1_v2/Dockerfile
+    container_name: innovision-uc1-worker
+    ports:
+      - "8021:8021"
+    environment:
+      REDIS_URL: redis://redis:6379
+      TEST_CAMERA_ID: "00000000-0000-0000-0000-000000000001"
+      REDIS_CONSUMER_GROUP: uc1_v2_group
+      REDIS_CONSUMER_NAME: uc1_v2_worker_1
+      YOLO_MODEL: yolov8n.pt
+      YOLO_CONFIDENCE: "0.35"
+      CAMERA_REGISTRY_URL: http://camera_registry:8011
+      ALERT_MGMT_URL: http://alert_management:8000
+      INCIDENT_MGMT_URL: http://incident_management:8000
+    depends_on:
+      platform_init:   { condition: service_completed_successfully }
+      camera_registry: { condition: service_healthy }
+      ingestion:       { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8021/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
   # Real UC2: Fire, Smoke, and Sparks AI Analytics & Detection Module
   uc2_fire_smoke:
     build:
@@ -324,6 +354,7 @@ services:
         VITE_INGESTION_API_URL: http://localhost:8020
         VITE_UC2_STREAM_URL: http://localhost:8030
         VITE_UC3_API_URL: http://localhost:8031
+        VITE_UC1_API_URL: http://localhost:8021
     container_name: innovision-dashboard
     ports:
       - "3000:3000"

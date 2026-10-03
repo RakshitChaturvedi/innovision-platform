@@ -26,6 +26,7 @@ echo   Innovision Platform Successfully Started!
 echo ========================================================
 echo   Dashboard UI:       http://localhost:3000
 echo   Detection Module:   http://localhost:3000/detection
+echo   UC1 Worker Count:   http://localhost:8021
 echo   UC2 Fire/Smoke/Sparks: http://localhost:8030/health
 echo   UC3/PART PPE Safety:   http://localhost:8031/health
 echo   Camera Ingestion:   http://localhost:8020

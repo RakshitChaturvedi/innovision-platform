@@ -272,6 +272,23 @@ async def run_uc3_worker():
             if ok:
                 state.latest_frame_jpeg = jpeg.tobytes()
 
+            # Record normalized detections for frontend overlay
+            state.latest_detections = [
+                {
+                    "label": f"Worker: {'VIOLATION (' + ','.join(insp['missing_ppe']).upper() + ')' if insp['is_violation'] else 'COMPLIANT'}",
+                    "color": "#e53e3e" if insp["is_violation"] else "#46BD92",
+                    "bbox": {
+                        "x1": round(insp["bbox"]["x1"] / max(w, 1), 3),
+                        "y1": round(insp["bbox"]["y1"] / max(h, 1), 3),
+                        "x2": round(insp["bbox"]["x2"] / max(w, 1), 3),
+                        "y2": round(insp["bbox"]["y2"] / max(h, 1), 3),
+                    },
+                    "missing_ppe": insp.get("missing_ppe", []),
+                }
+                for insp in inspections
+            ]
+            state.latest_detection_time = datetime.now(timezone.utc).isoformat()
+
             # 3. Handle Alert Triggering with cooldown
             now = time.time()
             if violation_found and (now - state.last_alert_time) >= 15.0:
@@ -381,6 +398,15 @@ async def ppe_summary():
         "violations": state.violations_detected,
         "alerts": state.alerts_published,
         "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/uc3/cameras/{camera_id}/latest-detections", summary="Latest Detected Bounding Boxes for UI Overlay")
+async def get_camera_latest_detections(camera_id: str):
+    return {
+        "camera_id": camera_id,
+        "timestamp": getattr(state, "latest_detection_time", datetime.now(timezone.utc).isoformat()),
+        "detections": getattr(state, "latest_detections", []),
     }
 
 

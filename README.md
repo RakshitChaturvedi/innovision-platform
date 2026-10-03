@@ -43,6 +43,7 @@ docker compose up -d --build
    - Automatically initializes all Redis streams and consumer groups (`alerts:live`, `incidents:live`, `notifications:live`, `uc2_fire_smoke_cg`).
 3. **Core Services**: `auth`, `camera_registry`, `ingestion`, `alert_management`, `incident_management`, `notification`, `audit`, and `reporting_worker` start.
 4. **Active Analytics Engines**:
+   - **UC1 / PART**: Worker Count & Person Detection (`uc1_worker`) on port **8021**.
    - **UC2**: Real Fire, Smoke, and Sparks YOLOv8 Analytics & Detection Module (`uc2_fire_smoke`) on port **8030**.
    - **UC3 / PART**: PPE Compliance & Industrial Safety Worker (`uc3_worker`) on port **8031**.
 5. **Operator Dashboard**: React Web UI compiled in Docker and served on port **3000** with Detection Module UI and live hazard monitoring.
@@ -53,6 +54,7 @@ docker compose up -d --build
 | :--- | :--- | :--- | :--- |
 | **Operator Dashboard** | `http://localhost:3000` | Unified React SOC Dashboard | `admin@innovision.com` / `changeme` |
 | **Detection Module UI** | `http://localhost:3000/detection` | Interactive Image, Video & RTSP detection | None |
+| **UC1 Person Counter UI** | `http://localhost:8021` | Live person bounding boxes & count | None |
 | **UC2 Fire/Smoke API** | `http://localhost:8030/health` | Fire, Smoke, Sparks Status & Metrics | None |
 | **UC2 Live Stream Preview** | `http://localhost:8030/preview/00000000-0000-0000-0000-000000000002` | Live OpenCV annotated visual feed | None |
 | **UC3 / PART PPE Safety API** | `http://localhost:8031/health` | PPE Compliance inspection & stream | None |
