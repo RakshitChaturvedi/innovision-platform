@@ -1,7 +1,8 @@
 import axios from "axios";
+import { buildDetectionsUrl } from "@/lib/overlay";
 
-// Dedicated client for the UC3 detections endpoint.
-// Proxied via Vite dev server: /uc3 → http://localhost:8013 (or wherever UC3 API runs).
+// Dedicated client for the detections endpoint.
+// Proxied via Vite dev server: /<useCase> → http://localhost:8030 (or configured UC endpoint).
 const uc3Client = axios.create({
   baseURL: import.meta.env.VITE_UC3_API_URL ?? "",
 });
@@ -21,14 +22,15 @@ export interface Detection {
 export interface LatestDetectionsResponse {
   camera_id: string;
   detections: Detection[];
+  timestamp?: string;
   [key: string]: unknown;
 }
 
 export async function getLatestDetections(
   cameraId: string,
+  useCase: string = "uc3",
 ): Promise<LatestDetectionsResponse> {
-  const { data } = await uc3Client.get<LatestDetectionsResponse>(
-    `/uc3/cameras/${cameraId}/latest-detections`,
-  );
+  const url = buildDetectionsUrl(cameraId, useCase);
+  const { data } = await uc3Client.get<LatestDetectionsResponse>(url);
   return data;
 }

@@ -2,6 +2,7 @@ import { useState, useRef, type ReactNode } from "react";
 
 import CameraOverlay from "./CameraOverlay";
 import DetectionOverlay from "./DetectionOverlay";
+import { getActiveOverlayUseCase } from "@/lib/overlay";
 
 interface LiveFeedProps {
   cameraId: string;
@@ -11,8 +12,8 @@ interface LiveFeedProps {
   overlay?: ReactNode;
 }
 
-const STREAM_URL =
-  import.meta.env.VITE_INGESTION_API_URL;
+const STREAM_URL = import.meta.env.VITE_INGESTION_API_URL;
+const OVERLAY_USE_CASES_CONFIG = import.meta.env.VITE_OVERLAY_USE_CASES ?? "uc3";
 
 export default function LiveFeed({
   cameraId,
@@ -24,7 +25,7 @@ export default function LiveFeed({
   const imgRef = useRef<HTMLImageElement>(null);
   const [imgDimensions, setImgDimensions] = useState({ width: 0, height: 0 });
 
-  const isUC3 = useCases.includes("uc3");
+  const activeUseCase = getActiveOverlayUseCase(useCases, OVERLAY_USE_CASES_CONFIG);
 
   function handleImgLoad() {
     const img = imgRef.current;
@@ -42,7 +43,6 @@ export default function LiveFeed({
       aria-label={`${cameraName} live feed`}
     >
       {isOnline ? (
-        // position: relative container so the canvas can be absolutely placed on top
         <div style={{ position: "relative", display: "inline-block" }}>
           <img
             ref={imgRef}
@@ -53,9 +53,10 @@ export default function LiveFeed({
             style={{ display: "block" }}
           />
 
-          {isUC3 && imgDimensions.width > 0 && (
+          {activeUseCase && imgDimensions.width > 0 && (
             <DetectionOverlay
               cameraId={cameraId}
+              useCase={activeUseCase}
               width={imgDimensions.width}
               height={imgDimensions.height}
             />
