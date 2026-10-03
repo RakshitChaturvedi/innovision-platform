@@ -18,6 +18,7 @@ class NotificationSettings(BaseSettings):
     smtp_user: str = Field(default="", alias="SMTP_USER")
     smtp_password: str = Field(default="", alias="SMTP_PASSWORD")
     smtp_from: str = Field(default="alerts@innovision.com", alias="SMTP_FROM")
+    smtp_use_tls: bool = Field(default=False, alias="SMTP_USE_TLS")
 
     # Level → role that gets notified
     escalation_role_map: dict[int, str] = {1: "operator", 2: "admin", 3: "superadmin"}

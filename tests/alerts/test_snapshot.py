@@ -176,3 +176,17 @@ async def test_acknowledge_forbidden_camera_returns_403(db_factory):
         with TestClient(app) as client:
             resp = client.patch("/alerts/alert-forbidden-cam/acknowledge")
     assert resp.status_code == 403, resp.text
+
+
+@pytest.mark.asyncio
+async def test_status_counts(db_factory):
+    """GET /alerts/status-counts returns status count breakdown."""
+    admin_user = {"sub": "admin-001", "role": "admin", "camera_ids": []}
+    app = build_app(db_factory, user=admin_user)
+    with TestClient(app) as client:
+        resp = client.get("/alerts/status-counts")
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert "pending" in data
+    assert "acknowledged" in data
+    assert "resolved" in data

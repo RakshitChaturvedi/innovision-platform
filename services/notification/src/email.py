@@ -28,8 +28,10 @@ This alert has not been acknowledged. Please review immediately.
 
     try:
         with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=10) as server:
-            server.starttls()
-            server.login(settings.smtp_user, settings.smtp_password)
+            if settings.smtp_use_tls:
+                server.starttls()
+            if settings.smtp_user and settings.smtp_password:
+                server.login(settings.smtp_user, settings.smtp_password)
             server.send_message(msg)
         logger.info("escalation_email_sent to=%s level=%d", to_email, level)
         return True

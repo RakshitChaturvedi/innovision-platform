@@ -111,7 +111,8 @@ async def acknowledge(
                               {"id": alert_id})).fetchone()
     if updated:
         await push_alert_update(dict(updated._mapping))
-    return {"status": "acknowledged"}
+        return dict(updated._mapping)
+    raise HTTPException(status_code=404, detail="Alert not found")
 
 
 @router.patch("/{alert_id}/resolve", dependencies=[Depends(require_role(Role.OPERATOR))])
@@ -147,7 +148,30 @@ async def resolve(
                               {"id": alert_id})).fetchone()
     if updated:
         await push_alert_update(dict(updated._mapping))
-    return {"status": "resolved"}
+        return dict(updated._mapping)
+    raise HTTPException(status_code=404, detail="Alert not found")
+
+
+@router.get("/status-counts")
+async def status_counts(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    camera_filter = (
+        "" if user.get("role") in ("superadmin", "admin")
+        else "WHERE camera_id = ANY(:camera_ids)"
+    )
+    params = {} if user.get("role") in ("superadmin", "admin") else {"camera_ids": user.get("camera_ids", [])}
+
+    rows = await db.execute(text(f"""
+        SELECT status, count(*) AS c FROM alerts {camera_filter} GROUP BY status
+    """), params)
+
+    counts = {"pending": 0, "acknowledged": 0, "resolved": 0}
+    for r in rows.fetchall():
+        if r.status in counts:
+            counts[r.status] = r.c
+    return counts
 
 
 @router.get("/unacknowledged")

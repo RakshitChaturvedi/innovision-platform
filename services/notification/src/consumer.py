@@ -85,7 +85,8 @@ class NotificationConsumer:
                     recipient_rows = recipients.fetchall()
 
                     for r in recipient_rows:
-                        success = send_escalation_email(
+                        success = await asyncio.to_thread(
+                            send_escalation_email,
                             r.email, alert_row.title, alert_row.description,
                             camera_row.name, level,
                         )

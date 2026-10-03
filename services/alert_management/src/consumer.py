@@ -144,10 +144,10 @@ class AlertConsumer:
                         entity_type="alert",
                         entity_id=row_id,
                         source_uc=alert.source_uc.value,
-                        metadata=json.dumps({
+                        metadata={
                             "alert_type": alert.alert_type,
                             "severity": alert.severity.value,
-                        }),
+                        },
                         session=session,
                     )
                     alert_row = await fetch_alert_by_alert_id(
