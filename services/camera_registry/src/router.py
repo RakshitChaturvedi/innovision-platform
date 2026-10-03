@@ -1,10 +1,27 @@
+import hmac
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Header
 
+from services.camera_registry.src.config import settings
 from services.camera_registry.src.schemas import CameraCreate, CameraConfigUpdate, CameraResponse, CameraStatusUpdate
 from services.camera_registry.src.service import CameraRegistryService
 from services.auth.src.rbac import require_role, Role, get_current_user
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/cameras", tags=["camera-registry"])
+
+_warned_empty_key = False
+
+if not settings.internal_service_key and not _warned_empty_key:
+    logger.warning("INTERNAL_SERVICE_KEY is empty; internal service key authentication is disabled.")
+    _warned_empty_key = True
+
+
+def is_valid_internal_key(x_internal_key: str | None) -> bool:
+    if not settings.internal_service_key or not x_internal_key:
+        return False
+    return hmac.compare_digest(x_internal_key, settings.internal_service_key)
 
 
 def get_service() -> CameraRegistryService:
@@ -20,8 +37,27 @@ async def get_optional_user(authorization: str | None = Header(None)) -> dict | 
         return None
 
 
-def _is_privileged(user: dict | None) -> bool:
-    return user is not None and user.get("role") in ("superadmin", "admin")
+def is_privileged_request(
+    user: dict | None,
+    x_internal_key: str | None,
+) -> bool:
+    if user is not None and user.get("role") in ("superadmin", "admin"):
+        return True
+    return is_valid_internal_key(x_internal_key)
+
+
+async def require_admin_or_internal_key(
+    authorization: str | None = Header(None),
+    x_internal_key: str | None = Header(None, alias="X-Internal-Key"),
+):
+    if is_valid_internal_key(x_internal_key):
+        return True
+    if authorization:
+        user = await get_current_user(authorization=authorization)
+        if user.get("role") in ("superadmin", "admin"):
+            return True
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    raise HTTPException(status_code=401, detail="Authentication required")
 
 
 @router.post("", status_code=201, dependencies=[Depends(require_role(Role.ADMIN))])
@@ -35,11 +71,11 @@ async def create_camera(
 @router.get("")
 async def list_cameras(
     user: dict | None = Depends(get_optional_user),
+    x_internal_key: str | None = Header(None, alias="X-Internal-Key"),
     service: CameraRegistryService = Depends(get_service),
 ):
     cameras = await service.get_active_cameras()
-    if not _is_privileged(user):
-        # Strip RTSP URLs from non-privileged callers (browsers, UC analytics)
+    if not is_privileged_request(user, x_internal_key):
         cameras = [{k: v for k, v in c.items() if k != "rtsp_url"} for c in cameras]
     return cameras
 
@@ -58,18 +94,13 @@ async def cameras_for_uc(
 async def get_camera(
     camera_id: str,
     user: dict | None = Depends(get_optional_user),
+    x_internal_key: str | None = Header(None, alias="X-Internal-Key"),
     service: CameraRegistryService = Depends(get_service),
 ):
-    """
-    Fetch a single camera by ID.
-    Used by ingestion on camera:added / camera:updated events so it doesn't
-    have to wait up to 60 s for the periodic reconcile.
-    rtsp_url is hidden from non-privileged callers.
-    """
     camera = await service.get_camera(camera_id)
     if not camera:
         raise HTTPException(status_code=404, detail="Camera not found")
-    if not _is_privileged(user):
+    if not is_privileged_request(user, x_internal_key):
         camera = {k: v for k, v in camera.items() if k != "rtsp_url"}
     return camera
 
@@ -99,7 +130,7 @@ async def get_status(
     }
 
 
-@router.patch("/{camera_id}/status", dependencies=[Depends(require_role(Role.ADMIN))])
+@router.patch("/{camera_id}/status", dependencies=[Depends(require_admin_or_internal_key)])
 async def update_status(
     camera_id: str,
     body: CameraStatusUpdate,

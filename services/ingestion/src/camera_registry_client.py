@@ -14,8 +14,12 @@ class CameraRegistryClient:
     # async http client
     def __init__(self) -> None:
         self._base_url = settings.camera_registry_url.rstrip("/")
+        headers = {}
+        if settings.internal_service_key:
+            headers["X-Internal-Key"] = settings.internal_service_key
         self._client = httpx.AsyncClient(
             base_url=self._base_url,
+            headers=headers,
             timeout=httpx.Timeout(connect=5.0, read=10.0, write=10.0, pool=5.0)
         )
 

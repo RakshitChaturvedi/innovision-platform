@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -55,6 +56,25 @@ def test_get_camera_by_id_includes_rtsp_url_admin(client):
     assert data["rtsp_url"] == "rtsp://secret-url:554/live"
 
 
+def test_get_camera_with_internal_key(client):
+    with patch("services.camera_registry.src.router.settings.internal_service_key", "secret-key-123"):
+        # Valid internal key
+        res = client.get("/cameras/cam-1", headers={"X-Internal-Key": "secret-key-123"})
+        assert res.status_code == 200
+        assert res.json()["rtsp_url"] == "rtsp://secret-url:554/live"
+
+        # Wrong internal key
+        res = client.get("/cameras/cam-1", headers={"X-Internal-Key": "wrong-key"})
+        assert res.status_code == 200
+        assert "rtsp_url" not in res.json()
+
+    # Empty internal key setting
+    with patch("services.camera_registry.src.router.settings.internal_service_key", ""):
+        res = client.get("/cameras/cam-1", headers={"X-Internal-Key": "secret-key-123"})
+        assert res.status_code == 200
+        assert "rtsp_url" not in res.json()
+
+
 def test_get_camera_by_id_not_found(client):
     res = client.get("/cameras/nonexistent")
     assert res.status_code == 404
@@ -76,26 +96,43 @@ def test_list_cameras_includes_rtsp_url_admin(client):
     assert cameras[0]["rtsp_url"] == "rtsp://secret-url:554/live"
 
 
-def test_patch_status_requires_admin(client):
-    # Unauthenticated -> missing header returns 422
-    res = client.patch("/cameras/cam-1/status", json={"status": "offline"})
-    assert res.status_code == 422
+def test_list_cameras_with_internal_key(client):
+    with patch("services.camera_registry.src.router.settings.internal_service_key", "secret-key-123"):
+        res = client.get("/cameras", headers={"X-Internal-Key": "secret-key-123"})
+        assert res.status_code == 200
+        cameras = res.json()
+        assert cameras[0]["rtsp_url"] == "rtsp://secret-url:554/live"
 
-    # Viewer -> 403
-    viewer_token = create_access_token("user1", "viewer", [])
-    res = client.patch(
-        "/cameras/cam-1/status",
-        json={"status": "offline"},
-        headers={"Authorization": f"Bearer {viewer_token}"},
-    )
-    assert res.status_code == 403
 
-    # Admin -> 200
-    admin_token = create_access_token("admin1", "admin", [])
-    res = client.patch(
-        "/cameras/cam-1/status",
-        json={"status": "offline"},
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
-    assert res.status_code == 200
-    assert res.json() == {"camera_id": "cam-1", "status": "offline"}
+def test_patch_status_requires_admin_or_internal_key(client):
+    with patch("services.camera_registry.src.router.settings.internal_service_key", "secret-key-123"):
+        # Unauthenticated without key -> 401
+        res = client.patch("/cameras/cam-1/status", json={"status": "offline"})
+        assert res.status_code == 401
+
+        # Viewer without key -> 403
+        viewer_token = create_access_token("user1", "viewer", [])
+        res = client.patch(
+            "/cameras/cam-1/status",
+            json={"status": "offline"},
+            headers={"Authorization": f"Bearer {viewer_token}"},
+        )
+        assert res.status_code == 403
+
+        # Viewer with internal key -> 200
+        res = client.patch(
+            "/cameras/cam-1/status",
+            json={"status": "offline"},
+            headers={"X-Internal-Key": "secret-key-123"},
+        )
+        assert res.status_code == 200
+
+        # Admin -> 200
+        admin_token = create_access_token("admin1", "admin", [])
+        res = client.patch(
+            "/cameras/cam-1/status",
+            json={"status": "offline"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert res.status_code == 200
+        assert res.json() == {"camera_id": "cam-1", "status": "offline"}

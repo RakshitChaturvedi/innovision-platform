@@ -36,6 +36,7 @@ class IngestionConfig(BaseSettings):
     camera_registry_url: str = Field(
         default="http://camera_registry:8011", alias="CAMERA_REGISTRY_URL"
     )
+    internal_service_key: str = Field(default="", alias="INTERNAL_SERVICE_KEY")
     camera_refresh_interval_s: int = Field(
         default=60, alias="CAMERA_REFRESH_INTERVAL_S"
     )
