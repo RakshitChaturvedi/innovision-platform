@@ -16,15 +16,23 @@ class ReportingSettings(BaseSettings):
         default="redis://redis:6379/2", alias="CELERY_BROKER_URL"
     )
 
-    # UC1's own compliance API — the one sanctioned cross-UC HTTP call
+    # Per-use-case compliance source URLs — all configurable via environment
     uc1_compliance_url: str = Field(
         default="http://uc1_api:8000/uc1/compliance/readiness",
         alias="UC1_COMPLIANCE_URL",
     )
-    # UC3 PPE metrics — configurable; default reaches UC3 on host port 8030
+    uc2_compliance_url: str = Field(
+        default="http://uc2_api:8000/uc2/compliance/summary",
+        alias="UC2_COMPLIANCE_URL",
+    )
     uc3_ppe_metrics_url: str = Field(
         default="http://host.docker.internal:8030/uc3/compliance/ppe-summary",
         alias="UC3_PPE_METRICS_URL",
     )
+    uc4_compliance_url: str = Field(
+        default="http://uc4_api:8000/uc4/compliance/summary",
+        alias="UC4_COMPLIANCE_URL",
+    )
+
 
 settings = ReportingSettings()

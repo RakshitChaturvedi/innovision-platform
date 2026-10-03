@@ -148,3 +148,19 @@ def test_uc3_url_default():
     assert "uc3_api" not in s.uc3_ppe_metrics_url, \
         "UC3 URL still points at non-existent uc3_api container"
     assert "8030" in s.uc3_ppe_metrics_url or "host.docker.internal" in s.uc3_ppe_metrics_url
+
+
+@pytest.mark.asyncio
+async def test_compliance_summary_graceful_degradation():
+    """generate_compliance_summary must complete even when all external UC sources fail."""
+    from services.reporting.src.generators.compliance_summary import generate_compliance_summary
+    from unittest.mock import patch
+
+    with patch("httpx.AsyncClient.get", side_effect=Exception("Connection refused")):
+        res = await generate_compliance_summary(None, DATE_START, DATE_END)
+
+    assert res["report_type"] == "compliance_summary"
+    assert res["dpdp_readiness"]["status"] == "source_unavailable"
+    assert res["uc2_compliance"]["status"] == "source_unavailable"
+    assert res["ppe_compliance"]["status"] == "source_unavailable"
+    assert res["uc4_compliance"]["status"] == "source_unavailable"
