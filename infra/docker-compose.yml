@@ -59,9 +59,11 @@ services:
     ports:
       - "80:80"
     depends_on:
-      - postgres
-      - redis
-      - minio
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      camera_registry: { condition: service_healthy }
+      alert_management: { condition: service_healthy }
     restart: unless-stopped
 
   prometheus:

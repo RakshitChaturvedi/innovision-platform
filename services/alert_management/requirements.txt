@@ -10,3 +10,4 @@ PyJWT
 python-socketio
 celery
 bcrypt
+minio
