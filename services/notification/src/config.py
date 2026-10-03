@@ -13,8 +13,8 @@ class NotificationSettings(BaseSettings):
     consumer_group: str = "notification_group"
     consumer_name: str = Field(default="notification_worker_1", alias="CONSUMER_NAME")
 
-    smtp_host: str = Field(default="", alias="SMTP_HOST")
-    smtp_port: int = Field(default=587, alias="SMTP_PORT")
+    smtp_host: str = Field(default="mailhog", alias="SMTP_HOST")
+    smtp_port: int = Field(default=1025, alias="SMTP_PORT")
     smtp_user: str = Field(default="", alias="SMTP_USER")
     smtp_password: str = Field(default="", alias="SMTP_PASSWORD")
     smtp_from: str = Field(default="alerts@innovision.com", alias="SMTP_FROM")
@@ -22,5 +22,6 @@ class NotificationSettings(BaseSettings):
 
     # Level → role that gets notified
     escalation_role_map: dict[int, str] = {1: "operator", 2: "admin", 3: "superadmin"}
+
 
 settings = NotificationSettings()
