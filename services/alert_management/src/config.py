@@ -31,7 +31,9 @@ class AlertManagementSettings(BaseSettings):
     minio_access_key: str = Field(default="minioadmin", alias="MINIO_ACCESS_KEY")
     minio_secret_key: str = Field(default="", alias="MINIO_SECRET_KEY")
     minio_secure: bool = Field(default=False, alias="MINIO_SECURE")
-    minio_snapshots_bucket: str = "innovision-snapshots"
+    minio_public_secure: bool = Field(default=False, alias="MINIO_PUBLIC_SECURE")
+    minio_region: str = Field(default="us-east-1", alias="MINIO_REGION")
+    snapshot_bucket: str = Field(default="innovision-snapshots", alias="SNAPSHOT_BUCKET")
     snapshot_presign_expires: int = 300  # seconds
 
 settings = AlertManagementSettings()

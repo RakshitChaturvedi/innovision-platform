@@ -23,12 +23,15 @@ _minio_internal = Minio(
     secure=settings.minio_secure,
 )
 
+from minio.error import S3Error
+
 # MinIO client — uses public endpoint so presigned URLs are browser-reachable
 _minio_public = Minio(
     settings.minio_public_endpoint,
     access_key=settings.minio_access_key,
     secret_key=settings.minio_secret_key,
-    secure=settings.minio_secure,
+    secure=settings.minio_public_secure,
+    region=settings.minio_region,
 )
 
 
@@ -206,34 +209,48 @@ async def count(user: dict = Depends(get_current_user), db: AsyncSession = Depen
 @router.get("/{alert_id}/snapshot", dependencies=[Depends(require_role(Role.OPERATOR))])
 async def get_snapshot(
     alert_id: str,
+    user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Return a presigned GET URL for the alert's evidence snapshot stored in MinIO.
     The URL is built against MINIO_PUBLIC_ENDPOINT so the browser can reach it.
-    Returns 404 when the alert has no frame_reference.
+    Returns 404 when the alert does not exist or has no frame_reference.
+    Returns 403 when the user has no access to the alert's camera.
     """
     row = (await db.execute(
-        text("SELECT frame_reference FROM alerts WHERE alert_id = :id"),
+        text("SELECT camera_id, frame_reference FROM alerts WHERE alert_id = :id"),
         {"id": alert_id},
     )).fetchone()
 
     if not row:
         raise HTTPException(status_code=404, detail="Alert not found")
 
+    if user.get("role") not in ("superadmin", "admin"):
+        allowed_cameras = [str(c) for c in user.get("camera_ids", [])]
+        if row.camera_id is not None and str(row.camera_id) not in allowed_cameras:
+            raise HTTPException(status_code=403, detail="No access to this camera")
+
     frame_reference: str | None = row.frame_reference
     if not frame_reference:
         raise HTTPException(status_code=404, detail="Alert has no snapshot")
 
     try:
-        # Presign using the public-endpoint client so the URL is browser-reachable
         url = await asyncio.to_thread(
             _minio_public.presigned_get_object,
-            settings.minio_snapshots_bucket,
+            settings.snapshot_bucket,
             frame_reference,
             expires=timedelta(seconds=settings.snapshot_presign_expires),
         )
+    except S3Error as exc:
+        code = getattr(exc, "_code", None) or getattr(exc, "code", None) or ""
+        if code in ("NoSuchKey", "NoSuchBucket", "ResourceNotFound", "404") or "NoSuchKey" in str(exc) or "specified key does not exist" in str(exc):
+            raise HTTPException(status_code=404, detail="Snapshot object not found")
+        raise HTTPException(status_code=502, detail=f"Could not generate snapshot URL: {exc}")
     except Exception as exc:
+        code = getattr(exc, "_code", None) or getattr(exc, "code", None) or ""
+        if code in ("NoSuchKey", "NoSuchBucket", "ResourceNotFound", "404") or "NoSuchKey" in str(exc) or "specified key does not exist" in str(exc):
+            raise HTTPException(status_code=404, detail="Snapshot object not found")
         raise HTTPException(status_code=502, detail=f"Could not generate snapshot URL: {exc}")
 
     return {"url": url, "expires_in": settings.snapshot_presign_expires}

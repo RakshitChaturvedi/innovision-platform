@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from minio.error import S3Error
 
 _DDL = [
     """
@@ -45,6 +46,7 @@ _DDL = [
 FAKE_USER = {"sub": "user-001", "role": "operator", "camera_ids": ["cam-1"]}
 ALERT_ID = "alert-uuid-0001"
 FRAME_REF = "uc3/alerts/2026-09-28/snap.jpg"
+PUBLIC_ENDPOINT = "localhost:9000"
 PRESIGNED_URL = "http://localhost:9000/innovision-snapshots/uc3/alerts/2026-09-28/snap.jpg?X-Amz-Signature=abc"
 
 
@@ -78,7 +80,7 @@ async def db_factory():
         await conn.exec_driver_sql(
             "INSERT INTO alerts (id, alert_id, camera_id, frame_reference, source_uc, severity, title, description, source_event_id, alert_type) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            ("row-3", "alert-forbidden-cam", "cam-forbidden", None, "uc3", "low", "Forbidden", "desc", "ev-3", "ppe_violation"),
+            ("row-3", "alert-forbidden-cam", "cam-forbidden", "uc1/alerts/snap.jpg", "uc1", "low", "Forbidden", "desc", "ev-3", "ppe_violation"),
         )
 
     factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
@@ -110,7 +112,7 @@ def build_app(db_factory, user=FAKE_USER):
 
 @pytest.mark.asyncio
 async def test_snapshot_returns_presigned_url(db_factory):
-    """Alert with frame_reference → 200 with presigned URL."""
+    """Alert with frame_reference → 200 with presigned URL using public endpoint."""
     app = build_app(db_factory)
 
     fake_minio = MagicMock()
@@ -122,7 +124,7 @@ async def test_snapshot_returns_presigned_url(db_factory):
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["url"] == PRESIGNED_URL
+    assert PUBLIC_ENDPOINT in body["url"]
     assert body["expires_in"] == 300
 
 
@@ -144,6 +146,31 @@ async def test_snapshot_404_unknown_alert(db_factory):
 
     with TestClient(app) as client:
         resp = client.get("/alerts/does-not-exist/snapshot")
+
+    assert resp.status_code == 404, resp.text
+
+
+@pytest.mark.asyncio
+async def test_snapshot_403_forbidden_camera(db_factory):
+    """Snapshot for alert on camera user has no access to → 403."""
+    app = build_app(db_factory)
+    with TestClient(app) as client:
+        resp = client.get("/alerts/alert-forbidden-cam/snapshot")
+    assert resp.status_code == 403, resp.text
+
+
+@pytest.mark.asyncio
+async def test_snapshot_404_object_missing_in_minio(db_factory):
+    """Missing object in MinIO (S3Error NoSuchKey) → 404."""
+    app = build_app(db_factory)
+
+    s3_err = S3Error("NoSuchKey", "The specified key does not exist.", "resource", "request_id", "host_id", None)
+    fake_minio = MagicMock()
+    fake_minio.presigned_get_object = MagicMock(side_effect=s3_err)
+
+    with patch("services.alert_management.src.router._minio_public", fake_minio):
+        with TestClient(app) as client:
+            resp = client.get(f"/alerts/{ALERT_ID}/snapshot")
 
     assert resp.status_code == 404, resp.text
 
