@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from services.uc2_fire_smoke.src.api.router import router as api_router
+from services.uc2_fire_smoke.src.api.detection_router import router as detection_router
 from services.uc2_fire_smoke.src.config import settings
 from services.uc2_fire_smoke.src.redis.client import RedisClientManager
 from services.uc2_fire_smoke.src.storage.minio_client import MinIOClient
@@ -83,8 +84,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount internal UC API routes
+# Mount internal UC API routes and centralized Detection Module
 app.include_router(api_router)
+app.include_router(detection_router)
 
 
 if __name__ == "__main__":

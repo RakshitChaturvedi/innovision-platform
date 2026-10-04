@@ -17,6 +17,11 @@ const navigation: NavigationItem[] = [
     minimumRole: "viewer",
   },
   {
+    label: "Detection Module",
+    to: "/detection",
+    minimumRole: "viewer",
+  },
+  {
     label: "Alerts",
     to: "/alerts",
     minimumRole: "operator",
@@ -49,7 +54,7 @@ const navigation: NavigationItem[] = [
 ];
 
 function getSection(label: string) {
-  if (label === "Dashboard") return "Overview";
+  if (label === "Dashboard" || label === "Detection Module") return "Overview";
 
   if (
     label === "Alerts" ||

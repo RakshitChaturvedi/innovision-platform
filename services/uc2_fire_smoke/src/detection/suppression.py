@@ -65,15 +65,18 @@ def _is_dust_or_steam(roi_gray: np.ndarray, roi_hsv: np.ndarray) -> Tuple[bool, 
     return False, ""
 
 
-def _is_sunlight_reflection(roi_gray: np.ndarray, roi_hsv: np.ndarray) -> Tuple[bool, str]:
-    """Sunlight/lens flare: extremely bright, saturated hot spots."""
+def _is_sunlight_reflection(roi_gray: np.ndarray, roi_hsv: np.ndarray, det_type: str = "", hsv_score: float = 0.0) -> Tuple[bool, str]:
+    """Sunlight/lens flare: extremely bright, uncoloured/desaturated hot spots without flame characteristics."""
+    if det_type == "fire" and hsv_score >= 0.25:
+        return False, ""
     avg_val = float(np.mean(roi_hsv[:, :, 2]))
     max_val = float(np.max(roi_hsv[:, :, 2]))
+    avg_sat = float(np.mean(roi_hsv[:, :, 1]))
     bright_ratio = float(np.count_nonzero(roi_gray > 240)) / max(roi_gray.size, 1)
-    if avg_val > 220 and bright_ratio > 0.4:
-        return True, f"sunlight(val={avg_val:.0f},bright_pct={bright_ratio:.2f})"
-    if max_val > 252 and bright_ratio > 0.6:
-        return True, f"lens_flare(max={max_val:.0f},bright_pct={bright_ratio:.2f})"
+    if avg_val > 220 and bright_ratio > 0.4 and avg_sat < 50:
+        return True, f"sunlight(val={avg_val:.0f},bright_pct={bright_ratio:.2f},sat={avg_sat:.0f})"
+    if max_val > 252 and bright_ratio > 0.6 and avg_sat < 40:
+        return True, f"lens_flare(max={max_val:.0f},bright_pct={bright_ratio:.2f},sat={avg_sat:.0f})"
     return False, ""
 
 
@@ -115,7 +118,7 @@ class FalseAlarmSuppressor:
         roi_hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
 
         # Check sunlight / flare
-        is_sunlight, reason = _is_sunlight_reflection(roi_gray, roi_hsv)
+        is_sunlight, reason = _is_sunlight_reflection(roi_gray, roi_hsv, det_type=det_type, hsv_score=hsv_score)
         if is_sunlight:
             return FalseAlarmDecision(suppressed=True, reason=reason, category="reflection")
 

@@ -52,19 +52,19 @@ def seed_cameras(sync_db_url: str) -> None:
     seed_sql = text("""
         INSERT INTO cameras (id, name, location, status, use_cases, rtsp_url)
         VALUES
-            ('00000000-0000-0000-0000-000000000001', 'Test Camera UC1', 'Integration Test', 'online', ARRAY['uc1'], '/app/test_data/videos/uc1.mp4'),
-            ('00000000-0000-0000-0000-000000000002', 'Test Camera UC2', 'Integration Test', 'online', ARRAY['uc2'], '/app/test_data/videos/uc2.mp4'),
-            ('00000000-0000-0000-0000-000000000003', 'Test Camera UC3', 'Integration Test', 'online', ARRAY['uc3'], '/app/test_data/videos/uc3.mp4'),
-            ('00000000-0000-0000-0000-000000000004', 'Test Camera UC4', 'Integration Test', 'online', ARRAY['uc4'], '/app/test_data/videos/uc4.mp4'),
-            ('00000000-0000-0000-0000-000000000005', 'Test Camera UC5', 'Integration Test', 'online', ARRAY['uc5'], '/app/test_data/videos/uc5.mp4')
+            ('00000000-0000-0000-0000-000000000001', 'Camera 1 (Floor A)', 'Shop Floor A', 'online', ARRAY['uc1'], '/app/test_data/videos/uc1.mp4'),
+            ('00000000-0000-0000-0000-000000000002', 'Camera 2 (Boiler Room)', 'Boiler Room West', 'online', ARRAY['uc2'], '/app/test_data/videos/uc2.mp4'),
+            ('00000000-0000-0000-0000-000000000003', 'Camera 3 (Safety Zone)', 'Assembly Bay 3', 'online', ARRAY['uc3'], '/app/test_data/videos/uc3.mp4'),
+            ('00000000-0000-0000-0000-000000000004', 'Camera 4 (Gate Perimeter)', 'Vehicle Gate B', 'online', ARRAY['uc4'], '/app/test_data/videos/uc4.mp4')
         ON CONFLICT (id) DO UPDATE SET
+            name = EXCLUDED.name,
+            location = EXCLUDED.location,
             status = 'online',
-            rtsp_url = EXCLUDED.rtsp_url
-        WHERE cameras.rtsp_url IS NULL;
+            rtsp_url = EXCLUDED.rtsp_url;
     """)
     with engine.begin() as conn:
         conn.execute(seed_sql)
-    logger.info("✓ Seed cameras 1-5 reconciled with active demo stream paths.")
+    logger.info("✓ Seed cameras reconciled with active demo stream paths.")
 
 def init_minio(endpoint: str, access_key: str, secret_key: str, max_retries: int = 30) -> None:
     logger.info(f"Connecting to MinIO ({endpoint})...")
@@ -120,8 +120,9 @@ def init_redis(redis_url: str, max_retries: int = 30) -> None:
         "alerts:dead_letter": ["dead_letter_review_group"],
         "incidents:live": ["incident_management_group"],
         "notifications:live": ["notification_group"],
-        "frames:00000000-0000-0000-0000-000000000002": ["uc2_fire_smoke_cg"],
         "frames:00000000-0000-0000-0000-000000000001": ["uc1_v2_group"],
+        "frames:00000000-0000-0000-0000-000000000002": ["uc2_fire_smoke_cg"],
+        "frames:00000000-0000-0000-0000-000000000003": ["uc3_ppe_group"],
     }
     for stream, groups in streams.items():
         for group in groups:
