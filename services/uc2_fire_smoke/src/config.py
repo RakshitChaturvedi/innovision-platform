@@ -7,7 +7,7 @@ Grouped: Model | Redis | Camera | Verification | Storage | Monitoring | Performa
 from __future__ import annotations
 
 import os
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -124,6 +124,7 @@ class UC2Config(BaseSettings):
     minio_frames_bucket: str = Field("innovision-frames", alias="UC2_FRAMES_BUCKET")
     minio_evidence_bucket: str = Field("innovision-evidence", alias="UC2_EVIDENCE_BUCKET")
     jpeg_quality: int = Field(85, alias="UC2_JPEG_QUALITY")
+    database_url: Optional[str] = Field(None, alias="DATABASE_URL")
 
     # ── Monitoring ────────────────────────────────────────────────────────────
     prometheus_enabled: bool = Field(True, alias="UC2_PROMETHEUS_ENABLED")

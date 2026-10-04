@@ -273,6 +273,7 @@ services:
       - UC2_CONF_THRESHOLD=0.20
       - UC2_TEMPORAL_FRAMES=3
       - UC2_ALERT_COOLDOWN_S=30
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://innovision:changeme@postgres:5432/innovision_platform}
     depends_on:
       platform_init: { condition: service_completed_successfully }
       ingestion:     { condition: service_healthy }

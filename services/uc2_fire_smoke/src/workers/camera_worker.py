@@ -37,6 +37,7 @@ from services.uc2_fire_smoke.src.metrics.prometheus import (
 )
 from services.uc2_fire_smoke.src.redis.frame_consumer import RedisFrameConsumer
 from services.uc2_fire_smoke.src.storage.minio_client import MinIOClient
+from services.uc2_fire_smoke.src.storage.evidence_db import record_detection_backup
 
 logger = logging.getLogger("innovision.uc2.camera_worker")
 
@@ -415,6 +416,22 @@ class CameraWorker:
                     severity=det.severity.value,
                     alert_type=alert_event.alert_type,
                 ).inc()
+
+            # Record in isolated UC2 evidence backup table (fail-safe non-blocking)
+            asyncio.create_task(
+                record_detection_backup(
+                    camera_id=self.camera_id,
+                    alert_id=str(alert_uuid),
+                    detection_type=det.detection_type,
+                    confidence=det.final_confidence,
+                    verification_score=det.verification_score,
+                    bbox=det.bbox,
+                    source_type="rtsp",
+                    frame_seq=result.frame_seq,
+                    evidence_key=evidence_key,
+                    metadata=metadata,
+                )
+            )
 
             e2e_lat = time.perf_counter() - t_start
             E2E_LATENCY.labels(camera_id=self.camera_id).observe(e2e_lat)

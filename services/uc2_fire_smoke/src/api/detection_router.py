@@ -30,6 +30,7 @@ from shared.contracts.alert_event import AlertEvent
 from shared.contracts.enums import AlertSeverity, AlertStatus, FrameProvider, SourceUC
 from services.uc2_fire_smoke.src.config import settings
 from services.uc2_fire_smoke.src.detection.pipeline import ConfirmedDetection, DetectionPipeline, DetectionResult
+from services.uc2_fire_smoke.src.storage.evidence_db import record_detection_backup
 
 logger = logging.getLogger("innovision.uc2.detection_module")
 
@@ -324,6 +325,23 @@ async def detect_image(
 
     has_hazard = len(detections_payload) > 0
     top_hazard = detections_payload[0]["class"] if has_hazard else "none"
+
+    if has_hazard:
+        for det in result.confirmed_detections:
+            asyncio.create_task(
+                record_detection_backup(
+                    camera_id=None,
+                    alert_id=None,
+                    detection_type=det.detection_type,
+                    confidence=det.final_confidence,
+                    verification_score=det.verification_score,
+                    bbox=det.bbox,
+                    source_type="image",
+                    frame_seq=1,
+                    evidence_key=None,
+                    metadata={"filename": file.filename, "latency_ms": t_total},
+                )
+            )
 
     return {
         "status": "success",
