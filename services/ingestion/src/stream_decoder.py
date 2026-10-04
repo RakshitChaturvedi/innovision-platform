@@ -24,7 +24,7 @@ class StreamDecoder:
         if is_rtsp:
             cmd += ["-rtsp_transport", "tcp", "-timeout", "5000000"]
         elif is_file:
-            cmd+= ["-stream_loop", "-1"]
+            cmd+= ["-re", "-stream_loop", "-1"]
         cmd+= [
             "-i",
             self.source,

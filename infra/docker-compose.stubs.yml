@@ -46,10 +46,19 @@ services:
       context: ..
       dockerfile: stubs/uc4_stub/Dockerfile
     env_file: ../.env
+    ports:
+      - "8024:8024"
     environment:
-      UC_ID: uc4
-      TEST_CAMERA_ID: "00000000-0000-0000-0000-000000000004"
-      ALERT_INTERVAL_SECONDS: "8"
+      REDIS_URL: redis://redis:6379
+      CAMERA_REGISTRY_URL: http://camera_registry:8011
+      UC4_DATABASE_URL: ${DATABASE_URL}
+      SPEED_LIMIT_KMH: "2"
+      ANPR_CONSENSUS_MIN: "1"
+      REDIS_CONSUMER_GROUP: uc4_group
+      REDIS_CONSUMER_NAME: uc4_worker_1
+      FLAGS_use_mkldnn: "0"
+      PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT: "0"
+      FLAGS_use_onednn: "0"
     depends_on:
       redis:    { condition: service_healthy }
       postgres: { condition: service_healthy }

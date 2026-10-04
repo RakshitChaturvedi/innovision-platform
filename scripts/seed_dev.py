@@ -43,7 +43,7 @@ CAMERAS = [
         "name": "Test Camera UC4",
         "location": "Development",
         "video_path": "/app/test_data/videos/uc4.mp4",
-        "use_cases": ["uc1"],
+        "use_cases": ["uc4"],
         "fps": 10,
     },
 ]
@@ -118,7 +118,7 @@ async def seed_cameras(session):
         )
         print(
             f"Camera ready: {camera['name']} "
-            f"→ {camera['video_path']}"
+            f"-> {camera['video_path']}"
         )
 
 async def seed_users(session):
