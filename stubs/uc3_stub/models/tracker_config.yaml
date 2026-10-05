@@ -1,0 +1,16 @@
+# ByteTrack tracker config for this backend — copy of Ultralytics' bundled
+# bytetrack.yaml with one change: track_buffer bumped from 30 to 75 so
+# ByteTrack's own lost-track recovery window (~2.5-3.0s at typical 25-30fps)
+# comfortably exceeds GHOST_GRACE_SECONDS (backend/config.py, default 2.0s).
+# Without this, /ws/detect/live (no frame-skip layer, every browser frame
+# inferred immediately) could purge and reassign a new ID to a reappearing
+# person before our ghost-box cache entry expires, briefly rendering a stale
+# ghost (old ID) alongside a fresh real box (new ID) for the same person.
+
+tracker_type: bytetrack # (str) Tracker backend: bytetrack
+track_high_thresh: 0.25 # (float) First-stage match threshold; raise for cleaner tracks, lower to keep more
+track_low_thresh: 0.1 # (float) Second-stage threshold for low-score matches; balances recovery vs drift
+new_track_thresh: 0.25 # (float) Start a new track if no match ≥ this; higher reduces false tracks
+track_buffer: 75 # (int) Frames to keep lost tracks alive; higher handles occlusion, increases ID switches risk
+match_thresh: 0.8 # (float) Association similarity threshold (IoU/cost); tune with detector quality
+fuse_score: True # (bool) Fuse detection score with motion/IoU for matching; stabilizes weak detections
