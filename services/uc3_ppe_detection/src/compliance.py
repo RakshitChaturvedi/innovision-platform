@@ -53,6 +53,16 @@ PERSON_CHECK_TO_PPE_TYPE: dict[str, str] = {
     "eye": "eye_protection",
 }
 
+NEGATIVE_PPE: dict[str, tuple[str, str]] = {
+    "no-helmet": ("head", "helmet"),
+    "no-vest": ("vest", "safety_jacket"),
+    "no-gloves": ("hands", "gloves"),
+    "no-shoe": ("foot", "safety_boots"),
+    "no-shoes": ("foot", "safety_boots"),
+    "no-goggles": ("eye", "eye_protection"),
+    "no-mask": ("face", "mask"),
+}
+
 
 # ── Internal Helpers ──────────────────────────────────────────────────────────
 
@@ -249,10 +259,62 @@ def evaluate_compliance(
             by_label[d["label"].lower()].append((idx, tuple(d["box"])))
 
         for d in worker_dets:
-            if d["label"].lower() in ALWAYS_COMPLIANT:
+            lbl = d["label"].lower()
+            if lbl in NEGATIVE_PPE:
+                d["compliant"] = False
+            elif lbl in ALWAYS_COMPLIANT:
                 d["compliant"] = True
 
         claimed_global: set[tuple[str, int]] = set()
+
+        # Handle direct negative detection classes (no-helmet, no-vest, etc.)
+        for neg_lbl, (part, ppe_type) in NEGATIVE_PPE.items():
+            if neg_lbl in by_label:
+                was_active = state.timelines[part].violation_active
+                raise_violation = state.update(part, covered=False, now=now)
+                if raise_violation:
+                    vio_name = f"no-{part}-protection" if part in ("head", "hands", "foot") else f"no-{part}"
+                    frame_violations.append(vio_name)
+                    if not was_active:
+                        worker_violations.append({
+                            "worker_id": worker_id,
+                            "ppe_type": ppe_type,
+                            "violation": vio_name,
+                            "confidence": state.timelines[part].last_fraction_missing,
+                        })
+
+        # Person-level checks when a person/worker is detected
+        if "person" in by_label or "worker" in by_label:
+            has_helmet = any(lbl in by_label for lbl in REQUIRED_PPE["head"])
+            if "no-helmet" not in by_label:
+                was_active = state.timelines["head"].violation_active
+                raise_violation = state.update("head", covered=has_helmet, now=now)
+                if raise_violation and not has_helmet:
+                    frame_violations.append("no-head-protection")
+                    if not was_active:
+                        worker_violations.append({
+                            "worker_id": worker_id,
+                            "ppe_type": "helmet",
+                            "violation": "no-head-protection",
+                            "confidence": state.timelines["head"].last_fraction_missing,
+                        })
+
+            has_vest = any(
+                lbl in by_label
+                for lbl in ("safety-vest", "safety_vest", "vest", "medical-suit", "medical_suit", "safety-suit", "safety_suit")
+            )
+            if "no-vest" not in by_label:
+                was_active = state.timelines["vest"].violation_active
+                raise_violation = state.update("vest", covered=has_vest, now=now)
+                if raise_violation and not has_vest:
+                    frame_violations.append("no-safety-vest")
+                    if not was_active:
+                        worker_violations.append({
+                            "worker_id": worker_id,
+                            "ppe_type": "safety_jacket",
+                            "violation": "no-safety-vest",
+                            "confidence": state.timelines["vest"].last_fraction_missing,
+                        })
 
         for part, protectors in REQUIRED_PPE.items():
             if required_ppe is not None and PART_TO_PPE_TYPE[part] not in required_ppe:
@@ -329,7 +391,10 @@ def evaluate_compliance(
                     })
 
     for d in detections:
-        if "compliant" not in d:
+        lbl = d.get("label", "").lower()
+        if lbl in NEGATIVE_PPE:
+            d["compliant"] = False
+        elif "compliant" not in d:
             d["compliant"] = True
 
     seen: set[str] = set()

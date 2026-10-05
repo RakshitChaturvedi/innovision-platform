@@ -54,6 +54,14 @@ CLASS_COLORS = {
     "ear-muffs": "#EAB308",
     "medical-suit": "#22D3EE",
     "safety-suit": "#FB7185",
+    # Negative / Violation classes
+    "no-helmet": "#FF3333",
+    "no-vest": "#FF3333",
+    "no-gloves": "#FF3333",
+    "no-shoe": "#FF3333",
+    "no-shoes": "#FF3333",
+    "no-goggles": "#FF3333",
+    "no-mask": "#FF3333",
     # Body Parts & Workers
     "person": "#94A3B8",
     "worker": "#94A3B8",
@@ -66,9 +74,9 @@ CLASS_COLORS = {
 
 
 def get_detection_color(label: str, is_compliant: bool = True) -> str:
-    if not is_compliant:
-        return "#FF3333"
     norm_lbl = label.strip().lower().replace("_", "-")
+    if not is_compliant or norm_lbl.startswith("no-"):
+        return "#FF3333"
     return CLASS_COLORS.get(norm_lbl, "#94A3B8")
 
 
@@ -184,15 +192,22 @@ class CameraWorker:
             for d in filtered_dets:
                 bx = d["box"]
                 is_comp = d.get("compliant", True)
-                color = get_detection_color(d["label"], is_compliant=is_comp)
-                lbl_text = f"{d['label'].title()} {int(d['conf'] * 100)}%"
-                if not is_comp:
-                    lbl_text = f"no-{d['label'].lower()} (Missing PPE)"
+                lbl_lower = d["label"].lower()
+                is_violation = (not is_comp) or lbl_lower.startswith("no-")
+                color = get_detection_color(d["label"], is_compliant=not is_violation)
+                track_id = d.get("track_id")
+                prefix = f"W-{track_id} " if track_id and lbl_lower in ("person", "worker") else ""
+
+                if is_violation:
+                    lbl_text = f"{prefix}{d['label'].title()} (Missing PPE)"
+                else:
+                    lbl_text = f"{prefix}{d['label'].title()} {int(d['conf'] * 100)}%"
 
                 overlay_detections.append({
                     "label": lbl_text,
                     "confidence": round(d["conf"], 2),
                     "color": color,
+                    "compliant": not is_violation,
                     "box": {
                         "x1": round(bx[0] / w, 4),
                         "y1": round(bx[1] / h, 4),
@@ -241,7 +256,7 @@ class CameraWorker:
                     source_event_id=str(frame_event_dict.get("event_id", uuid4())),
                     source_uc=SourceUC.UC3,
                     frame_reference=evidence_key or frame_event_dict.get("frame_reference", ""),
-                    frame_provider=FrameProvider.minio if evidence_key else FrameProvider.base64,
+                    frame_provider=FrameProvider.MINIO if evidence_key else FrameProvider.REDIS,
                     metadata={
                         "track_id": track_id,
                         "missing_ppe": [ppe_type],

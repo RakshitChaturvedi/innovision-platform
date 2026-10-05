@@ -48,7 +48,7 @@ UC_ID: str = os.environ.get("UC_ID", "uc3")
 ALERT_COOLDOWN_S: float = _float("UC3_ALERT_COOLDOWN_S", 30.0)
 
 # ── Inference ──────────────────────────────────────────────────────────────────
-CONF_THRESHOLD: float = _float("PPE_CONF_THRESHOLD", 0.35)
+CONF_THRESHOLD: float = _float("PPE_CONF_THRESHOLD", 0.20)
 IOU_THRESHOLD: float = _float("PPE_IOU_THRESHOLD", 0.45)
 IMAGE_SIZE: int = _int("PPE_IMAGE_SIZE", 640)
 OVERLAP_THRESHOLD: float = _float("PPE_OVERLAP_THRESHOLD", 0.10)
