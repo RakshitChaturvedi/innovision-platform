@@ -31,14 +31,30 @@ services:
     build:
       context: ..
       dockerfile: stubs/uc3_stub/Dockerfile
+    ports:
+      - "8023:8023"
     env_file: ../.env
     environment:
       UC_ID: uc3
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CAMERA_REGISTRY_URL: http://camera_registry:8011
       TEST_CAMERA_ID: "00000000-0000-0000-0000-000000000003"
-      ALERT_INTERVAL_SECONDS: "12"
+      REDIS_CONSUMER_GROUP: uc3_compliance_group
+      REDIS_CONSUMER_NAME: uc3_worker_1
+      PPE_CONF_THRESHOLD: "0.35"
+      PPE_IOU_THRESHOLD: "0.45"
+      PPE_VIOLATION_WINDOW_SECONDS: "3.0"
     depends_on:
-      redis:    { condition: service_healthy }
+      redis: { condition: service_healthy }
       postgres: { condition: service_healthy }
+      camera_registry: { condition: service_healthy }
+      ingestion: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8023/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
   uc4_stub:

@@ -44,18 +44,30 @@ async def _frame_stream(
 ) -> AsyncGenerator[bytes, None]:
     stream_key = f"frames:{camera_id}"
     frame_cache = FrameCache(redis_client)
+    consecutive_misses = 0
 
-    # Start from the most recent published frame.
-    last_id = await _latest_stream_id(
-        redis_client,
-        stream_key,
-    )
-
+    # Start from the most recent published frame so we don't replay history.
+    last_id = await _latest_stream_id(redis_client, stream_key)
     if last_id is None:
-        last_id = "0-0"
+        last_id = "$"
 
     while True:
         try:
+            # If we've had too many consecutive cache misses, jump to latest
+            # so we don't keep chasing expired frames.
+            if consecutive_misses >= 5:
+                logger.warning(
+                    "stream_jumping_to_latest camera_id=%s misses=%d",
+                    camera_id,
+                    consecutive_misses,
+                )
+                latest = await _latest_stream_id(redis_client, stream_key)
+                if latest:
+                    last_id = latest
+                consecutive_misses = 0
+                await asyncio.sleep(0.1)
+                continue
+
             messages = await redis_client.xread(
                 {stream_key: last_id},
                 count=1,
@@ -88,7 +100,7 @@ async def _frame_stream(
                         last_id = message_id
                         continue
 
-                    # frame_reference is currently the Redis cache key.
+                    # frame_reference is the Redis cache key.
                     frame_bytes = await redis_client.get(frame_reference)
 
                     if frame_bytes is None:
@@ -98,8 +110,10 @@ async def _frame_stream(
                             frame_reference,
                         )
                         last_id = message_id
+                        consecutive_misses += 1
                         continue
 
+                    consecutive_misses = 0
                     yield (
                         b"--frame\r\n"
                         b"Content-Type: image/jpeg\r\n"

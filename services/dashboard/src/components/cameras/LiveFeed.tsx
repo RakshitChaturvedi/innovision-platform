@@ -1,4 +1,4 @@
-import { useState, useRef, type ReactNode } from "react";
+import { useState, useRef, useEffect, type ReactNode } from "react";
 
 import CameraOverlay from "./CameraOverlay";
 import DetectionOverlay from "./DetectionOverlay";
@@ -23,19 +23,30 @@ export default function LiveFeed({
   overlay,
 }: LiveFeedProps) {
   const imgRef = useRef<HTMLImageElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [imgDimensions, setImgDimensions] = useState({ width: 0, height: 0 });
 
   const activeUseCase = getActiveOverlayUseCase(useCases, OVERLAY_USE_CASES_CONFIG);
 
-  function handleImgLoad() {
-    const img = imgRef.current;
-    if (img) {
-      setImgDimensions({
-        width: img.offsetWidth,
-        height: img.offsetHeight,
-      });
-    }
-  }
+  // MJPEG streams never fire onLoad because the connection stays open forever.
+  // Use a ResizeObserver on the container to get real rendered dimensions
+  // as soon as the first frame paints (which causes a layout/resize).
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (width > 0 && height > 0) {
+          setImgDimensions({ width, height });
+        }
+      }
+    });
+
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [isOnline]);
 
   return (
     <section
@@ -43,13 +54,12 @@ export default function LiveFeed({
       aria-label={`${cameraName} live feed`}
     >
       {isOnline ? (
-        <div style={{ position: "relative", display: "inline-block" }}>
+        <div ref={containerRef} style={{ position: "relative", display: "inline-block" }}>
           <img
             ref={imgRef}
             className="live-feed-image"
             src={`${STREAM_URL}/stream/${cameraId}`}
             alt={`Live feed from ${cameraName}`}
-            onLoad={handleImgLoad}
             style={{ display: "block" }}
           />
 
