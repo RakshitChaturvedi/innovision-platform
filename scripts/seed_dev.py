@@ -118,7 +118,7 @@ async def seed_cameras(session):
         )
         print(
             f"Camera ready: {camera['name']} "
-            f"→ {camera['video_path']}"
+            f"-> {camera['video_path']}"
         )
 
 async def seed_users(session):
