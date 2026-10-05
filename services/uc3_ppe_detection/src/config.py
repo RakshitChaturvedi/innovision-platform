@@ -34,7 +34,7 @@ REDIS_URL: str = os.environ.get("REDIS_URL", f"redis://{REDIS_HOST}:{REDIS_PORT}
 
 MINIO_ENDPOINT: str = os.environ.get("MINIO_ENDPOINT", "minio:9000")
 MINIO_ACCESS_KEY: str = os.environ.get("MINIO_ACCESS_KEY", "minioadmin")
-MINIO_SECRET_KEY: str = os.environ.get("MINIO_SECRET_KEY", "minioadmin")
+MINIO_SECRET_KEY: str = os.environ.get("MINIO_SECRET_KEY", "InnovisionMinIO_2026")
 MINIO_SECURE: bool = _bool("MINIO_SECURE", False)
 MINIO_EVIDENCE_BUCKET: str = os.environ.get("UC3_EVIDENCE_BUCKET", "innovision-evidence")
 

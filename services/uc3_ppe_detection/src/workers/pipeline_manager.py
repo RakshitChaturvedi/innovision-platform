@@ -5,8 +5,9 @@ UC3 Pipeline Manager — Discovers active cameras and coordinates workers.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 import httpx
@@ -34,7 +35,7 @@ class PipelineManager:
         self.running = False
         self._loop_task: Optional[asyncio.Task] = None
 
-    async def discover_cameras() -> List[dict]:
+    async def discover_cameras(self) -> List[dict]:
         cameras = []
         try:
             async with httpx.AsyncClient(timeout=5.0) as http:
@@ -43,10 +44,14 @@ class PipelineManager:
                     data = resp.json()
                     cams = data.get("cameras", data) if isinstance(data, dict) else data
                     for c in cams:
-                        uc = str(c.get("use_case", "")).lower()
-                        if "uc3" in uc or "ppe" in uc or uc == "all" or not uc:
+                        use_cases = c.get("use_cases", c.get("use_case", []))
+                        if isinstance(use_cases, str):
+                            use_cases = [use_cases]
+                        uc_str = " ".join([str(u).lower() for u in use_cases])
+                        cid_val = str(c["id"] if "id" in c else c["camera_id"])
+                        if "uc3" in uc_str or "ppe" in uc_str or "all" in uc_str or cid_val == config.TEST_CAMERA_ID:
                             cameras.append({
-                                "camera_id": UUID(str(c["id"] if "id" in c else c["camera_id"])),
+                                "camera_id": UUID(cid_val),
                                 "name": c.get("name", "UC3 Camera"),
                             })
         except Exception as exc:
@@ -83,22 +88,26 @@ class PipelineManager:
             self.workers[cid] = worker
 
         self._loop_task = asyncio.create_task(self._run_loop(), name="uc3-pipeline-loop")
-        logger.info("UC3 Pipeline Manager started with %d workers", len(self.workers))
+        logger.info("UC3 Pipeline Manager started with %d workers: %s", len(self.workers), list(self.workers.keys()))
 
-    async def _run_loop(self) -> None:
-        stream_names = [f"frames:{cid}" for cid in self.workers.keys()]
-
+    async def _ensure_groups(self, stream_names: List[str]) -> None:
         for s_name in stream_names:
             try:
                 await self.redis.xgroup_create(
                     name=s_name,
                     groupname=config.REDIS_CONSUMER_GROUP,
-                    id="$",
+                    id="0",
                     mkstream=True,
                 )
             except ResponseError as exc:
                 if "BUSYGROUP" not in str(exc):
                     logger.warning("xgroup_create_warning stream=%s error=%s", s_name, exc)
+            except Exception as exc:
+                logger.warning("xgroup_create_error stream=%s error=%s", s_name, exc)
+
+    async def _run_loop(self) -> None:
+        stream_names = [f"frames:{cid}" for cid in self.workers.keys()]
+        await self._ensure_groups(stream_names)
 
         while self.running:
             try:
@@ -118,7 +127,7 @@ class PipelineManager:
                 for stream_b, messages in response:
                     if not messages:
                         continue
-                    stream_name = stream_b.decode("utf-8") if isinstance(stream_b, bytes) else str(stream_b)
+                    stream_name = stream_b.decode("utf-8") if isinstance(stream_b, bytes) else str(stream_name if 'stream_name' in locals() else stream_b)
                     cid_str = stream_name.replace("frames:", "")
                     try:
                         cid = UUID(cid_str)
@@ -148,7 +157,9 @@ class PipelineManager:
             except asyncio.CancelledError:
                 break
             except Exception as exc:
-                logger.error("UC3 Pipeline loop error: %s", exc)
+                if isinstance(exc, ResponseError) and "NOGROUP" in str(exc):
+                    await self._ensure_groups(stream_names)
+                logger.exception("UC3 Pipeline loop error: %s", exc)
                 await asyncio.sleep(1.0)
 
     async def stop(self) -> None:
@@ -160,3 +171,4 @@ class PipelineManager:
             except asyncio.CancelledError:
                 pass
         logger.info("UC3 Pipeline Manager stopped")
+

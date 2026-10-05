@@ -13,3 +13,6 @@ minio>=7.1.0
 prometheus-client>=0.17.0
 pytest>=7.0.0
 pytest-asyncio>=0.21.0
+lapx>=0.5.5
+scipy>=1.10.0
+

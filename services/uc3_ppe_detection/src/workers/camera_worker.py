@@ -29,6 +29,8 @@ from services.uc3_ppe_detection.src.motion_gate import MotionState
 from services.uc3_ppe_detection.src.person_gate import has_person
 from services.uc3_ppe_detection.src.storage.minio_client import MinIOClient
 
+logger = logging.getLogger(__name__)
+
 CLASS_COLORS = {
     # PPE Items
     "helmet": "#FFC53D",
@@ -101,14 +103,26 @@ class CameraWorker:
 
     async def process_frame(self, frame_event_dict: dict, msg_id: str, stream_name: str) -> None:
         try:
-            raw_b64 = frame_event_dict.get("frame_data") or frame_event_dict.get("data")
-            if not raw_b64:
-                return
+            frame_bytes: Optional[bytes] = None
+            frame_ref = frame_event_dict.get("frame_reference")
+            if frame_ref:
+                frame_bytes = await self.redis.get(frame_ref)
 
-            if isinstance(raw_b64, str):
-                frame_bytes = base64.b64decode(raw_b64)
-            else:
-                frame_bytes = raw_b64
+            if not frame_bytes:
+                raw_b64 = frame_event_dict.get("frame_data") or frame_event_dict.get("data")
+                if raw_b64 and isinstance(raw_b64, str):
+                    pad = len(raw_b64) % 4
+                    if pad:
+                        raw_b64 += "=" * (4 - pad)
+                    try:
+                        frame_bytes = base64.b64decode(raw_b64)
+                    except Exception:
+                        pass
+                elif raw_b64 and isinstance(raw_b64, bytes):
+                    frame_bytes = raw_b64
+
+            if not frame_bytes:
+                return
 
             nparr = np.frombuffer(frame_bytes, np.uint8)
             frame_img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
