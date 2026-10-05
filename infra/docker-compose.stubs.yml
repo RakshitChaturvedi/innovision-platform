@@ -18,10 +18,17 @@ services:
       context: ..
       dockerfile: stubs/uc2_stub/Dockerfile
     env_file: ../.env
+    ports:
+      - "8022:8022"
     environment:
-      UC_ID: uc2
-      TEST_CAMERA_ID: "00000000-0000-0000-0000-000000000002"
-      ALERT_INTERVAL_SECONDS: "15"
+      REDIS_URL: redis://redis:6379
+      CAMERA_REGISTRY_URL: http://camera_registry:8011
+      REDIS_CONSUMER_GROUP: uc2_group
+      REDIS_CONSUMER_NAME: uc2_worker_1
+      UC2_DEVICE: cpu
+      UC2_CONF_THRESHOLD: "0.20"
+      UC2_TEMPORAL_FRAMES: "3"
+      UC2_ALERT_COOLDOWN_S: "30"
     depends_on:
       redis:    { condition: service_healthy }
       postgres: { condition: service_healthy }
