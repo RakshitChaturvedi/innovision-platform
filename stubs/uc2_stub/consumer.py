@@ -45,7 +45,7 @@ async def discover_cameras(client: httpx.AsyncClient) -> list[str]:
     """
     try:
         response = await client.get(
-            f"{CAMERA_REGISTRY_URL}/cameras/byuc/{UC_ID}"
+            f"{CAMERA_REGISTRY_URL}/cameras/by-uc/{UC_ID}"
         )
         response.raise_for_status()
         payload = response.json()

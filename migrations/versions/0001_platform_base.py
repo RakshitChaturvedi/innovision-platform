@@ -191,17 +191,19 @@ def upgrade():
 
     #seed
     op.execute("""
-    INSERT INTO cameras (id, name, location, status, use_cases)
+    INSERT INTO cameras (id, name, location, status, use_cases, rtsp_url)
     VALUES
         ('00000000-0000-0000-0000-000000000001',
-            'Test Camera UC1', 'Integration Test', 'online', ARRAY['uc1']),
+            'Test Camera UC1', 'Integration Test', 'online', ARRAY['uc1'], '/app/test_data/videos/uc1.mp4'),
         ('00000000-0000-0000-0000-000000000002',
-            'Test Camera UC2', 'Integration Test', 'online', ARRAY['uc2']),
+            'Test Camera UC2', 'Integration Test', 'online', ARRAY['uc2'], '/app/test_data/videos/uc2.mp4'),
         ('00000000-0000-0000-0000-000000000003',
-            'Test Camera UC3', 'Integration Test', 'online', ARRAY['uc3']),
+            'Test Camera UC3', 'Integration Test', 'online', ARRAY['uc3'], '/app/test_data/videos/uc3.mp4'),
         ('00000000-0000-0000-0000-000000000004',
-            'Test Camera UC4', 'Integration Test', 'online', ARRAY['uc4'])
-    ON CONFLICT DO NOTHING
+            'Test Camera UC4', 'Integration Test', 'online', ARRAY['uc4'], '/app/test_data/videos/uc4.mp4')
+    ON CONFLICT (id) DO UPDATE SET
+        use_cases = EXCLUDED.use_cases,
+        rtsp_url = EXCLUDED.rtsp_url
 """)
 
     op.execute("""

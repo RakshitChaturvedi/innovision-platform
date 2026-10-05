@@ -105,6 +105,7 @@ export default function CameraDetail() {
           cameraId={camera.id}
           cameraName={camera.name}
           isOnline={status === "online"}
+          useCases={camera.use_cases}
         />
       </section>
 

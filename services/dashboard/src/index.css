@@ -741,6 +741,29 @@ p {
   border-radius: 0;
 }
 
+.live-feed-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.camera-overlay-container {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.camera-canvas-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
 .live-feed-content {
   color: var(--text-secondary);
 
@@ -1044,6 +1067,45 @@ p {
 .severity-critical {
   color: var(--danger);
   border-color: rgba(248, 113, 113, 0.25);
+}
+
+/* Source UC Badges */
+.source-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 2.5px 6px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border: 1px solid transparent;
+}
+
+.source-badge.source-uc2 {
+  background: rgba(239, 68, 68, 0.16);
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+.source-badge.source-uc4 {
+  background: rgba(20, 184, 166, 0.16);
+  color: #14b8a6;
+  border-color: rgba(20, 184, 166, 0.35);
+}
+
+.source-badge.source-uc1 {
+  background: rgba(59, 130, 246, 0.16);
+  color: #3b82f6;
+  border-color: rgba(59, 130, 246, 0.35);
+}
+
+.source-badge.source-uc3 {
+  background: rgba(168, 85, 247, 0.16);
+  color: #a855f7;
+  border-color: rgba(168, 85, 247, 0.35);
 }
 
 .alert-meta {

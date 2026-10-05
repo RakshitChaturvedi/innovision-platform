@@ -23,6 +23,7 @@ import cv2
 import numpy as np
 import redis.asyncio as aioredis
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 os.environ["FLAGS_use_mkldnn"] = "0"
 os.environ["PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT"] = "0"
@@ -88,6 +89,10 @@ metrics = {
 # camera_id -> {active_sessions, speed_estimator, tracker state, ocr_queue, ...}
 _camera_state: dict[str, dict] = {}
 _camera_state_lock = threading.Lock()
+
+# ── In-memory Latest Detections Store ─────────────────────────────
+latest_detections: dict[str, dict] = {}
+_latest_detections_lock = threading.Lock()
 
 # ── ML Models (lazy loaded) ──────────────────────────────────────
 
@@ -595,6 +600,49 @@ async def process_frame(
             else:
                 metrics["alerts_failed"] += 1
 
+    # ── Update in-memory latest detections cache ──────────────────
+    detections_payload = []
+    for tid, x1, y1, x2, y2, v_type, det_idx in valid_tracks:
+        session = active_sessions.get(tid, {})
+        max_speed = session.get("max_speed_kmh", 0.0)
+        is_speeding = max_speed > speed_limit
+        plate_reads = session.get("plate_reads", [])
+        plate_confs = session.get("plate_confidences", [])
+        consensus_plate = get_mode(plate_reads, plate_confs) if plate_reads else None
+        is_unauthorized = bool(consensus_plate and consensus_plate in BLACKLISTED_PLATES)
+        is_violation = is_speeding or is_unauthorized
+
+        has_plate = bool(consensus_plate and consensus_plate != "UNKNOWN")
+        label = consensus_plate if has_plate else v_type
+        color = "#FF0000" if is_violation else "#00FF00"
+
+        nx1 = max(0.0, min(1.0, round(x1 / float(width), 4)))
+        ny1 = max(0.0, min(1.0, round(y1 / float(height), 4)))
+        nx2 = max(0.0, min(1.0, round(x2 / float(width), 4)))
+        ny2 = max(0.0, min(1.0, round(y2 / float(height), 4)))
+
+        detections_payload.append({
+            "track_id": int(tid),
+            "bbox": {"x1": nx1, "y1": ny1, "x2": nx2, "y2": ny2},
+            "label": label,
+            "color": color,
+            "metadata": {
+                "vehicle_type": v_type,
+                "speed_kmh": round(max_speed, 1),
+                "speed_limit_kmh": speed_limit,
+                "is_violation": is_violation,
+                "plate": consensus_plate,
+            },
+        })
+
+    with _latest_detections_lock:
+        latest_detections[camera_id] = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "camera_id": camera_id,
+            "detections": detections_payload,
+            "zones": [],
+        }
+
     # ── 8. Stale tracker cleanup ─────────────────────────────────
     stale_tids = [
         t for t, data in active_sessions.items()
@@ -700,6 +748,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 @app.get("/health")
 async def health():
@@ -713,6 +769,20 @@ async def get_metrics():
         "alerts_published": metrics["alerts_published"],
         "alerts_failed": metrics["alerts_failed"],
         "active_tracks": metrics["active_tracks"],
+    }
+
+
+@app.get("/uc4/cameras/{camera_id}/latest-detections")
+@app.get("/cameras/{camera_id}/latest-detections")
+async def get_latest_detections_endpoint(camera_id: str):
+    with _latest_detections_lock:
+        if camera_id in latest_detections:
+            return latest_detections[camera_id]
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "camera_id": camera_id,
+        "detections": [],
+        "zones": [],
     }
 
 

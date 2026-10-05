@@ -6,16 +6,18 @@ interface LiveFeedProps {
   cameraId: string;
   cameraName: string;
   isOnline: boolean;
+  useCases?: string[];
   overlay?: ReactNode;
 }
 
 const STREAM_URL =
-  import.meta.env.VITE_INGESTION_API_URL;
+  import.meta.env.VITE_INGESTION_API_URL || "http://localhost:8000";
 
 export default function LiveFeed({
   cameraId,
   cameraName,
   isOnline,
+  useCases = [],
   overlay,
 }: LiveFeedProps) {
   return (
@@ -36,7 +38,11 @@ export default function LiveFeed({
         </div>
       )}
 
-      <CameraOverlay>
+      <CameraOverlay
+        cameraId={cameraId}
+        useCases={useCases}
+        isOnline={isOnline}
+      >
         {overlay}
       </CameraOverlay>
     </section>

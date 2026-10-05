@@ -25,7 +25,7 @@ services:
       CAMERA_REGISTRY_URL: http://camera_registry:8011
       REDIS_CONSUMER_GROUP: uc2_group
       REDIS_CONSUMER_NAME: uc2_worker_1
-      UC2_DEVICE: cpu
+      UC2_DEVICE: ${UC2_DEVICE:-auto}
       UC2_CONF_THRESHOLD: "0.20"
       UC2_TEMPORAL_FRAMES: "3"
       UC2_ALERT_COOLDOWN_S: "30"

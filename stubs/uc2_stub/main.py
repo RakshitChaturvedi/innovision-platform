@@ -22,6 +22,7 @@ import cv2
 import numpy as np
 import redis.asyncio as aioredis
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 sys.path.insert(0, "/app")
 
@@ -63,6 +64,10 @@ metrics = {
 
 _camera_state: dict[str, dict] = {}
 _camera_state_lock = threading.Lock()
+
+# ── In-memory Latest Detections Store ─────────────────────────────
+latest_detections: dict[str, dict] = {}
+_latest_detections_lock = threading.Lock()
 
 # ── ML Pipeline (lazy loaded) ────────────────────────────────────
 
@@ -150,6 +155,35 @@ async def process_frame(
 
     # Store current frame for next iteration's temporal comparison
     cam_state["prev_frame"] = frame
+
+    # ── Update in-memory latest detections cache ──────────────────
+    h, w = frame.shape[:2]
+    dets_payload = []
+    for idx, det in enumerate(result.confirmed_detections):
+        x1 = max(0.0, min(1.0, round(det.bbox["x1"] / w, 4)))
+        y1 = max(0.0, min(1.0, round(det.bbox["y1"] / h, 4)))
+        x2 = max(0.0, min(1.0, round(det.bbox["x2"] / w, 4)))
+        y2 = max(0.0, min(1.0, round(det.bbox["y2"] / h, 4)))
+        is_fire = det.detection_type.lower() == "fire"
+        dets_payload.append({
+            "track_id": idx + 1,
+            "bbox": {"x1": x1, "y1": y1, "x2": x2, "y2": y2},
+            "label": "FIRE" if is_fire else "SMOKE",
+            "color": "#FF0000" if is_fire else "#FFA500",
+            "metadata": {
+                "confidence": det.final_confidence,
+                "zone": det.zone.zone_name,
+                "severity": det.severity.value,
+            },
+        })
+
+    with _latest_detections_lock:
+        latest_detections[camera_id] = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "camera_id": camera_id,
+            "detections": dets_payload,
+            "zones": [],
+        }
 
     # ── 4. Emit alerts for confirmed detections ───────────────────
     alert_cooldowns = cam_state["alert_cooldowns"]
@@ -275,6 +309,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 @app.get("/health")
 async def health():
@@ -288,6 +330,20 @@ async def get_metrics():
         "alerts_published": metrics["alerts_published"],
         "alerts_failed": metrics["alerts_failed"],
         "active_detections": metrics["active_detections"],
+    }
+
+
+@app.get("/uc2/cameras/{camera_id}/latest-detections")
+@app.get("/cameras/{camera_id}/latest-detections")
+async def get_latest_detections_endpoint(camera_id: str):
+    with _latest_detections_lock:
+        if camera_id in latest_detections:
+            return latest_detections[camera_id]
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "camera_id": camera_id,
+        "detections": [],
+        "zones": [],
     }
 
 
