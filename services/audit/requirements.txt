@@ -4,5 +4,6 @@ pydantic
 pydantic-settings
 sqlalchemy
 asyncpg
+greenlet
 bcrypt
 PyJWT

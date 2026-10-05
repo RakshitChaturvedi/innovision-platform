@@ -3,6 +3,7 @@ uvicorn[standard]
 pydantic
 pydantic-settings
 sqlalchemy
+asyncpg
+greenlet
 bcrypt
 PyJWT
-asyncpg

@@ -4,6 +4,7 @@ pydantic
 pydantic-settings
 sqlalchemy
 asyncpg
+greenlet
 minio
 celery
 httpx
