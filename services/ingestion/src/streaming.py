@@ -43,17 +43,41 @@ async def _frame_stream(
     camera_id: str,
 ) -> AsyncGenerator[bytes, None]:
     stream_key = f"frames:{camera_id}"
-    frame_cache = FrameCache(redis_client)
 
-    # Start from the most recent published frame.
-    last_id = await _latest_stream_id(
-        redis_client,
+    # 1. Immediately yield the most recent published frame if available
+    latest_messages = await redis_client.xrevrange(
         stream_key,
+        max="+",
+        min="-",
+        count=1,
     )
+    last_id = "0-0"
+    if latest_messages:
+        msg_id, fields = latest_messages[0]
+        if isinstance(msg_id, bytes):
+            msg_id = msg_id.decode()
+        last_id = msg_id
 
-    if last_id is None:
-        last_id = "0-0"
+        payload = fields.get(b"data") or fields.get("data")
+        if payload:
+            if isinstance(payload, bytes):
+                payload = payload.decode()
+            try:
+                event = json.loads(payload)
+                frame_reference = event.get("frame_reference")
+                if frame_reference:
+                    frame_bytes = await redis_client.get(frame_reference)
+                    if frame_bytes:
+                        yield (
+                            b"--frame\r\n"
+                            b"Content-Type: image/jpeg\r\n\r\n"
+                            + frame_bytes
+                            + b"\r\n"
+                        )
+            except Exception:
+                pass
 
+    # 2. Stream subsequent frames as they arrive
     while True:
         try:
             messages = await redis_client.xread(
@@ -63,7 +87,7 @@ async def _frame_stream(
             )
 
             if not messages:
-                await asyncio.sleep(0)
+                await asyncio.sleep(0.01)
                 continue
 
             for _, entries in messages:
@@ -80,7 +104,11 @@ async def _frame_stream(
                     if isinstance(payload, bytes):
                         payload = payload.decode()
 
-                    event = json.loads(payload)
+                    try:
+                        event = json.loads(payload)
+                    except Exception:
+                        last_id = message_id
+                        continue
 
                     frame_reference = event.get("frame_reference")
 
@@ -102,10 +130,7 @@ async def _frame_stream(
 
                     yield (
                         b"--frame\r\n"
-                        b"Content-Type: image/jpeg\r\n"
-                        b"Content-Length: "
-                        + str(len(frame_bytes)).encode()
-                        + b"\r\n\r\n"
+                        b"Content-Type: image/jpeg\r\n\r\n"
                         + frame_bytes
                         + b"\r\n"
                     )
@@ -151,7 +176,11 @@ async def stream_camera(
         ),
         media_type="multipart/x-mixed-replace; boundary=frame",
         headers={
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
             "Pragma": "no-cache",
+            "Expires": "0",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
         },
     )

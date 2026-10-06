@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import CameraOverlay from "./CameraOverlay";
 
@@ -25,6 +25,19 @@ export default function LiveFeed({
   useCases = [],
   overlay,
 }: LiveFeedProps) {
+  const [retryCount, setRetryCount] = useState(0);
+
+  const handleStreamError = () => {
+    // Retry stream connection if dropped
+    setTimeout(() => {
+      setRetryCount((c) => c + 1);
+    }, 2000);
+  };
+
+  const streamSrc = isOnline
+    ? `${STREAM_URL}/stream/${cameraId}${retryCount > 0 ? `?retry=${retryCount}` : ""}`
+    : undefined;
+
   return (
     <section
       className="live-feed"
@@ -32,8 +45,10 @@ export default function LiveFeed({
     >
       {isOnline ? (
         <img
+          key={retryCount}
           className="live-feed-image"
-          src={`${STREAM_URL}/stream/${cameraId}`}
+          src={streamSrc}
+          onError={handleStreamError}
           alt={`Live feed from ${cameraName}`}
         />
       ) : (
