@@ -160,20 +160,20 @@ async def process_frame(
     h, w = frame.shape[:2]
     dets_payload = []
     for idx, det in enumerate(result.confirmed_detections):
-        x1 = max(0.0, min(1.0, round(det.bbox["x1"] / w, 4)))
-        y1 = max(0.0, min(1.0, round(det.bbox["y1"] / h, 4)))
-        x2 = max(0.0, min(1.0, round(det.bbox["x2"] / w, 4)))
-        y2 = max(0.0, min(1.0, round(det.bbox["y2"] / h, 4)))
+        x1 = float(max(0.0, min(1.0, round(float(det.bbox["x1"]) / float(w), 4))))
+        y1 = float(max(0.0, min(1.0, round(float(det.bbox["y1"]) / float(h), 4))))
+        x2 = float(max(0.0, min(1.0, round(float(det.bbox["x2"]) / float(w), 4))))
+        y2 = float(max(0.0, min(1.0, round(float(det.bbox["y2"]) / float(h), 4))))
         is_fire = det.detection_type.lower() == "fire"
         dets_payload.append({
-            "track_id": idx + 1,
+            "track_id": int(idx + 1),
             "bbox": {"x1": x1, "y1": y1, "x2": x2, "y2": y2},
             "label": "FIRE" if is_fire else "SMOKE",
             "color": "#FF0000" if is_fire else "#FFA500",
             "metadata": {
-                "confidence": det.final_confidence,
-                "zone": det.zone.zone_name,
-                "severity": det.severity.value,
+                "confidence": float(round(float(det.final_confidence), 4)),
+                "zone": str(det.zone.zone_name),
+                "severity": str(det.severity.value),
             },
         })
 

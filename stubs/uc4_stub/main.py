@@ -616,10 +616,10 @@ async def process_frame(
         label = consensus_plate if has_plate else v_type
         color = "#FF0000" if is_violation else "#00FF00"
 
-        nx1 = max(0.0, min(1.0, round(x1 / float(width), 4)))
-        ny1 = max(0.0, min(1.0, round(y1 / float(height), 4)))
-        nx2 = max(0.0, min(1.0, round(x2 / float(width), 4)))
-        ny2 = max(0.0, min(1.0, round(y2 / float(height), 4)))
+        nx1 = float(max(0.0, min(1.0, round(float(x1) / float(width), 4))))
+        ny1 = float(max(0.0, min(1.0, round(float(y1) / float(height), 4))))
+        nx2 = float(max(0.0, min(1.0, round(float(x2) / float(width), 4))))
+        ny2 = float(max(0.0, min(1.0, round(float(y2) / float(height), 4))))
 
         detections_payload.append({
             "track_id": int(tid),
@@ -627,11 +627,11 @@ async def process_frame(
             "label": label,
             "color": color,
             "metadata": {
-                "vehicle_type": v_type,
-                "speed_kmh": round(max_speed, 1),
-                "speed_limit_kmh": speed_limit,
-                "is_violation": is_violation,
-                "plate": consensus_plate,
+                "vehicle_type": str(v_type),
+                "speed_kmh": float(round(float(max_speed), 1)),
+                "speed_limit_kmh": float(speed_limit),
+                "is_violation": bool(is_violation),
+                "plate": str(consensus_plate) if consensus_plate else None,
             },
         })
 
