@@ -10,6 +10,35 @@ class StreamDropError(Exception):
     """raised when ffmpeg process exits / its output stream closes."""
 
 class StreamDecoder:
+    @staticmethod
+    async def probe_resolution(source: str) -> tuple[int, int]:
+        """Probe native stream resolution using ffprobe, fallback to (1920, 1080)."""
+        cmd = [
+            "ffprobe",
+            "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-of", "csv=p=0",
+            source,
+        ]
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=3.0)
+            if proc.returncode == 0 and stdout:
+                parts = stdout.decode().strip().split(",")
+                if len(parts) >= 2:
+                    w, h = int(parts[0]), int(parts[1])
+                    if w > 0 and h > 0:
+                        logger.info("probed_resolution source=%s width=%d height=%d", source, w, h)
+                        return w, h
+        except Exception as e:
+            logger.warning("ffprobe_failed source=%s error=%s", source, e)
+        return 1920, 1080
+
     def __init__(self, source: str, width: int = 1920, height: int = 1080) -> None:
         self.source = source
         self.width = width

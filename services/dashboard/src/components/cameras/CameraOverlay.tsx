@@ -196,15 +196,46 @@ export default function CameraOverlay({
       return;
     }
 
+    // Inspect underlying img element for letterbox/pillarbox calculation
+    const imgEl = container.parentElement?.querySelector<HTMLImageElement>("img.live-feed-image");
+
+    // If source is already an annotated stream, server annotations are rendered directly onto frames
+    if (imgEl?.src?.includes("annotated-stream")) {
+      return;
+    }
+
+    let renderW = width;
+    let renderH = height;
+    let offsetX = 0;
+    let offsetY = 0;
+
+    if (imgEl && imgEl.naturalWidth > 0 && imgEl.naturalHeight > 0) {
+      const imgAspect = imgEl.naturalWidth / imgEl.naturalHeight;
+      const containerAspect = width / height;
+      if (containerAspect > imgAspect) {
+        // Pillarboxed: black bars on left & right
+        renderW = height * imgAspect;
+        renderH = height;
+        offsetX = (width - renderW) / 2;
+        offsetY = 0;
+      } else {
+        // Letterboxed: black bars on top & bottom
+        renderW = width;
+        renderH = width / imgAspect;
+        offsetX = 0;
+        offsetY = (height - renderH) / 2;
+      }
+    }
+
     for (const det of detections) {
       if (!det.bbox) continue;
 
       const { bbox, label, color = "#00FF00" } = det;
-      // Coordinates normalized 0.0 to 1.0 scaled to canvas pixel dimensions
-      const x = Math.max(0, Math.min(width, bbox.x1 * width));
-      const y = Math.max(0, Math.min(height, bbox.y1 * height));
-      const w = Math.max(0, Math.min(width - x, (bbox.x2 - bbox.x1) * width));
-      const h = Math.max(0, Math.min(height - y, (bbox.y2 - bbox.y1) * height));
+      // Correct coordinate mapping onto rendered image rectangle inside container
+      const x = offsetX + Math.max(0, Math.min(renderW, bbox.x1 * renderW));
+      const y = offsetY + Math.max(0, Math.min(renderH, bbox.y1 * renderH));
+      const w = Math.max(0, Math.min(renderW - (x - offsetX), (bbox.x2 - bbox.x1) * renderW));
+      const h = Math.max(0, Math.min(renderH - (y - offsetY), (bbox.y2 - bbox.y1) * renderH));
 
       if (w <= 0 || h <= 0) continue;
 

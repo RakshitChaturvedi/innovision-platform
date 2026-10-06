@@ -76,9 +76,9 @@ class CameraIngestionTask:
 
     async def _ingest_once(self) -> None:
         # connect to cam and process frames
-
-        decoder = StreamDecoder(source=self.rtsp_url)
-        encoder= JpegEncoder(quality=settings.jpeg_quality)
+        w, h = await StreamDecoder.probe_resolution(self.rtsp_url)
+        decoder = StreamDecoder(source=self.rtsp_url, width=w, height=h)
+        encoder = JpegEncoder(quality=settings.jpeg_quality)
         self._decoder = decoder
         sampler = FrameSampler(target_fps=self.fps)
 

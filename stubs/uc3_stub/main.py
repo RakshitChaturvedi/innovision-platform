@@ -30,6 +30,7 @@ import numpy as np
 import redis.asyncio as aioredis
 import torch
 from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from redis.exceptions import ResponseError
 from ultralytics import YOLO
@@ -89,6 +90,8 @@ metrics = {
     "alerts_failed": 0,
     "active_detections": 0,
 }
+
+_latest_annotated_frames: dict[str, bytes] = {}
 
 # ── Device Setup ──────────────────────────────────────────────────────────────
 _cuda_available = torch.cuda.is_available()
@@ -391,6 +394,27 @@ async def process_frame_message(
     metrics["frames_consumed"] += 1
     metrics["active_detections"] = len(ui_detections)
 
+    # Render annotations directly onto source frame for streaming
+    annotated_bgr = frame.copy()
+    h, w = frame.shape[:2]
+    for d in ui_detections:
+        bx1 = max(0, min(w - 1, int(round(d["bbox"]["x1"] * w))))
+        by1 = max(0, min(h - 1, int(round(d["bbox"]["y1"] * h))))
+        bx2 = max(0, min(w - 1, int(round(d["bbox"]["x2"] * w))))
+        by2 = max(0, min(h - 1, int(round(d["bbox"]["y2"] * h))))
+        hex_c = d.get("color", "#00e676").lstrip("#")
+        c_bgr = (int(hex_c[4:6], 16), int(hex_c[2:4], 16), int(hex_c[0:2], 16)) if len(hex_c) == 6 else (0, 255, 0)
+        cv2.rectangle(annotated_bgr, (bx1, by1), (bx2, by2), c_bgr, 2)
+        badge_text = f"{d['label']} {int(d['metadata']['confidence']*100)}%"
+        (tw, th), _ = cv2.getTextSize(badge_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+        ty = max(by1 - 5, th + 5)
+        cv2.rectangle(annotated_bgr, (bx1, ty - th - 4), (bx1 + tw + 6, ty + 2), c_bgr, -1)
+        cv2.putText(annotated_bgr, badge_text, (bx1 + 3, ty - 2), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
+
+    ret, buf = cv2.imencode(".jpg", annotated_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+    if ret:
+        _latest_annotated_frames[camera_id_str] = buf.tobytes()
+
     # 5. Emit AlertEvents for newly raised worker violations
     for wv in worker_violations:
         ppe_type = wv["ppe_type"]
@@ -582,6 +606,23 @@ async def get_latest_detections(camera_id: str):
         "zones": [],
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+
+@app.get("/uc3/cameras/{camera_id}/annotated-stream")
+@app.get("/cameras/{camera_id}/annotated-stream")
+async def get_annotated_stream(camera_id: str):
+    async def frame_generator():
+        while True:
+            frame_bytes = _latest_annotated_frames.get(camera_id)
+            if frame_bytes:
+                yield (
+                    b"--frame\r\n"
+                    b"Content-Type: image/jpeg\r\n\r\n"
+                    + frame_bytes
+                    + b"\r\n"
+                )
+            await asyncio.sleep(0.08)
+    return StreamingResponse(frame_generator(), media_type="multipart/x-mixed-replace; boundary=frame")
 
 
 @app.get("/uc3/compliance/ppe-summary", response_model=PPEComplianceSummary)

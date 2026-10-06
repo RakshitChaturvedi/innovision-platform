@@ -23,6 +23,7 @@ import cv2
 import numpy as np
 import redis.asyncio as aioredis
 from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 os.environ["FLAGS_use_mkldnn"] = "0"
@@ -93,6 +94,10 @@ _camera_state_lock = threading.Lock()
 # ── In-memory Latest Detections Store ─────────────────────────────
 latest_detections: dict[str, dict] = {}
 _latest_detections_lock = threading.Lock()
+
+# ── In-memory Latest Annotated Frames Store ───────────────────────
+latest_annotated_frames: dict[str, bytes] = {}
+_annotated_frames_lock = threading.Lock()
 
 # ── ML Models (lazy loaded) ──────────────────────────────────────
 
@@ -643,6 +648,31 @@ async def process_frame(
             "zones": [],
         }
 
+    # Render annotations directly onto frame for video stream
+    annotated_bgr = frame.copy()
+    h, w = frame.shape[:2]
+    for d in detections_payload:
+        bx1 = max(0, min(w - 1, int(round(d["bbox"]["x1"] * w))))
+        by1 = max(0, min(h - 1, int(round(d["bbox"]["y1"] * h))))
+        bx2 = max(0, min(w - 1, int(round(d["bbox"]["x2"] * w))))
+        by2 = max(0, min(h - 1, int(round(d["bbox"]["y2"] * h))))
+        is_viol = d["metadata"].get("is_violation", False)
+        c_bgr = (0, 0, 255) if is_viol else (0, 255, 0)
+        cv2.rectangle(annotated_bgr, (bx1, by1), (bx2, by2), c_bgr, 2)
+        spd = d["metadata"].get("speed_kmh", 0.0)
+        v_type = d["metadata"].get("vehicle_type", "Car")
+        plt = d["metadata"].get("plate")
+        badge_text = f"#{d['track_id']} {v_type} {spd:.1f} km/h" + (f" [{plt}]" if plt else "")
+        (tw, th), _ = cv2.getTextSize(badge_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+        ty = max(by1 - 5, th + 5)
+        cv2.rectangle(annotated_bgr, (bx1, ty - th - 4), (bx1 + tw + 6, ty + 2), c_bgr, -1)
+        cv2.putText(annotated_bgr, badge_text, (bx1 + 3, ty - 2), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
+
+    ret, buf = cv2.imencode(".jpg", annotated_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+    if ret:
+        with _annotated_frames_lock:
+            latest_annotated_frames[camera_id] = buf.tobytes()
+
     # ── 8. Stale tracker cleanup ─────────────────────────────────
     stale_tids = [
         t for t, data in active_sessions.items()
@@ -784,6 +814,24 @@ async def get_latest_detections_endpoint(camera_id: str):
         "detections": [],
         "zones": [],
     }
+
+
+@app.get("/uc4/cameras/{camera_id}/annotated-stream")
+@app.get("/cameras/{camera_id}/annotated-stream")
+async def get_annotated_stream(camera_id: str):
+    async def frame_generator():
+        while True:
+            with _annotated_frames_lock:
+                frame_bytes = latest_annotated_frames.get(camera_id)
+            if frame_bytes:
+                yield (
+                    b"--frame\r\n"
+                    b"Content-Type: image/jpeg\r\n\r\n"
+                    + frame_bytes
+                    + b"\r\n"
+                )
+            await asyncio.sleep(0.08)
+    return StreamingResponse(frame_generator(), media_type="multipart/x-mixed-replace; boundary=frame")
 
 
 if __name__ == "__main__":
