@@ -36,6 +36,8 @@ const DEFAULT_HOST =
 
 const UC2_API_URL =
   import.meta.env.VITE_UC2_API_URL || `http://${DEFAULT_HOST}:8022`;
+const UC3_API_URL =
+  import.meta.env.VITE_UC3_API_URL || `http://${DEFAULT_HOST}:8023`;
 const UC4_API_URL =
   import.meta.env.VITE_UC4_API_URL || `http://${DEFAULT_HOST}:8024`;
 
@@ -67,6 +69,15 @@ function resolveEndpoints(cameraId: string, useCases: string[] = []): string[] {
   const isUc2 = normalized.some(
     (u) => u === "uc2" || u.includes("fire") || u.includes("smoke")
   );
+  const isUc3 = normalized.some(
+    (u) =>
+      u === "uc3" ||
+      u.includes("ppe") ||
+      u.includes("safety") ||
+      u.includes("compliance") ||
+      u.includes("helmet") ||
+      u.includes("vest")
+  );
   const isUc4 = normalized.some(
     (u) =>
       u === "uc4" ||
@@ -79,13 +90,17 @@ function resolveEndpoints(cameraId: string, useCases: string[] = []): string[] {
   if (isUc2) {
     urls.push(`${UC2_API_URL}/uc2/cameras/${cameraId}/latest-detections`);
   }
+  if (isUc3) {
+    urls.push(`${UC3_API_URL}/uc3/cameras/${cameraId}/latest-detections`);
+  }
   if (isUc4) {
     urls.push(`${UC4_API_URL}/uc4/cameras/${cameraId}/latest-detections`);
   }
 
-  // If no matching use case tag provided or list empty, poll both candidate services
+  // If no matching use case tag provided or list empty, poll candidate services
   if (urls.length === 0) {
     urls.push(`${UC2_API_URL}/uc2/cameras/${cameraId}/latest-detections`);
+    urls.push(`${UC3_API_URL}/uc3/cameras/${cameraId}/latest-detections`);
     urls.push(`${UC4_API_URL}/uc4/cameras/${cameraId}/latest-detections`);
   }
 
