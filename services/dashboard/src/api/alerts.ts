@@ -34,7 +34,7 @@ export async function getAlerts(
 
   console.log("[API] /alerts response:", data);
 
-  return data;
+  return Array.isArray(data) ? data : [];
 }
 
 export async function acknowledgeAlert(

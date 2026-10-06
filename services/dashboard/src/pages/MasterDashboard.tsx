@@ -27,7 +27,7 @@ export default function MasterDashboard() {
     return <ErrorState message="Failed to load cameras." />;
   }
 
-  if (!cameras || cameras.length === 0) {
+  if (!cameras || !Array.isArray(cameras) || cameras.length === 0) {
     return <EmptyState message="No cameras available." />;
   }
 

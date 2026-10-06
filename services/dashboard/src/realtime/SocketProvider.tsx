@@ -47,7 +47,10 @@ export default function SocketProvider({
   });
 
   const cameraIds = useMemo(
-    () => camerasQuery.data?.map((camera) => camera.id) ?? [],
+    () =>
+      Array.isArray(camerasQuery.data)
+        ? camerasQuery.data.map((camera) => camera.id)
+        : [],
     [camerasQuery.data],
   );
 
