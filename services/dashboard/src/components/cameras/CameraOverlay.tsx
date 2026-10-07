@@ -34,8 +34,12 @@ const DEFAULT_HOST =
     ? window.location.hostname
     : "localhost";
 
+const UC1_API_URL =
+  import.meta.env.VITE_UC1_API_URL || `http://${DEFAULT_HOST}:8021`;
 const UC2_API_URL =
   import.meta.env.VITE_UC2_API_URL || `http://${DEFAULT_HOST}:8022`;
+const UC3_API_URL =
+  import.meta.env.VITE_UC3_API_URL || `http://${DEFAULT_HOST}:8023`;
 const UC4_API_URL =
   import.meta.env.VITE_UC4_API_URL || `http://${DEFAULT_HOST}:8024`;
 
@@ -64,8 +68,14 @@ function resolveEndpoints(cameraId: string, useCases: string[] = []): string[] {
   const normalized = useCases.map((u) => u.toLowerCase().trim());
   const urls: string[] = [];
 
+  const isUc1 = normalized.some(
+    (u) => u === "uc1" || u.includes("people") || u.includes("count")
+  );
   const isUc2 = normalized.some(
     (u) => u === "uc2" || u.includes("fire") || u.includes("smoke")
+  );
+  const isUc3 = normalized.some(
+    (u) => u === "uc3" || u.includes("ppe") || u.includes("safety") || u.includes("compliance")
   );
   const isUc4 = normalized.some(
     (u) =>
@@ -76,15 +86,22 @@ function resolveEndpoints(cameraId: string, useCases: string[] = []): string[] {
       u.includes("speed")
   );
 
+  if (isUc1) {
+    urls.push(`${UC1_API_URL}/uc1/cameras/${cameraId}/latest-detections`);
+  }
   if (isUc2) {
     urls.push(`${UC2_API_URL}/uc2/cameras/${cameraId}/latest-detections`);
+  }
+  if (isUc3) {
+    urls.push(`${UC3_API_URL}/uc3/cameras/${cameraId}/latest-detections`);
   }
   if (isUc4) {
     urls.push(`${UC4_API_URL}/uc4/cameras/${cameraId}/latest-detections`);
   }
 
-  // If no matching use case tag provided or list empty, poll both candidate services
+  // If no matching use case tag provided or list empty, poll candidate services
   if (urls.length === 0) {
+    urls.push(`${UC3_API_URL}/uc3/cameras/${cameraId}/latest-detections`);
     urls.push(`${UC2_API_URL}/uc2/cameras/${cameraId}/latest-detections`);
     urls.push(`${UC4_API_URL}/uc4/cameras/${cameraId}/latest-detections`);
   }
@@ -163,6 +180,28 @@ export default function CameraOverlay({
     const height = container.clientHeight;
     if (width === 0 || height === 0) return;
 
+    // Detect live feed image or video element aspect ratio to calculate letterbox offsets
+    const imgEl = container.parentElement?.querySelector("img.live-feed-image") as HTMLImageElement | null;
+    const sourceW = imgEl?.naturalWidth && imgEl.naturalWidth > 0 ? imgEl.naturalWidth : 1920;
+    const sourceH = imgEl?.naturalHeight && imgEl.naturalHeight > 0 ? imgEl.naturalHeight : 1080;
+    const videoAspect = sourceW / sourceH;
+    const containerAspect = width / height;
+
+    let displayedW = width;
+    let displayedH = height;
+    let offsetX = 0;
+    let offsetY = 0;
+
+    if (containerAspect > videoAspect) {
+      // Pillarboxed (vertical bars on left/right)
+      displayedW = height * videoAspect;
+      offsetX = (width - displayedW) / 2;
+    } else {
+      // Letterboxed (horizontal bars on top/bottom)
+      displayedH = width / videoAspect;
+      offsetY = (height - displayedH) / 2;
+    }
+
     const dpr = window.devicePixelRatio || 1;
     if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
       canvas.width = width * dpr;
@@ -185,11 +224,11 @@ export default function CameraOverlay({
       if (!det.bbox) continue;
 
       const { bbox, label, color = "#00FF00" } = det;
-      // Coordinates normalized 0.0 to 1.0 scaled to canvas pixel dimensions
-      const x = Math.max(0, Math.min(width, bbox.x1 * width));
-      const y = Math.max(0, Math.min(height, bbox.y1 * height));
-      const w = Math.max(0, Math.min(width - x, (bbox.x2 - bbox.x1) * width));
-      const h = Math.max(0, Math.min(height - y, (bbox.y2 - bbox.y1) * height));
+      // Coordinates normalized 0.0 to 1.0 mapped onto actual displayed video area with letterbox offset
+      const x = Math.max(offsetX, Math.min(offsetX + displayedW, offsetX + bbox.x1 * displayedW));
+      const y = Math.max(offsetY, Math.min(offsetY + displayedH, offsetY + bbox.y1 * displayedH));
+      const w = Math.max(0, Math.min(offsetX + displayedW - x, (bbox.x2 - bbox.x1) * displayedW));
+      const h = Math.max(0, Math.min(offsetY + displayedH - y, (bbox.y2 - bbox.y1) * displayedH));
 
       if (w <= 0 || h <= 0) continue;
 

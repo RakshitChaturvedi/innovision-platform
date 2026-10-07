@@ -29,8 +29,17 @@ class FrameStore:
             secure=settings.minio_secure,
         )
 
+    def _ensure_bucket(self) -> None:
+        try:
+            if not self._client.bucket_exists(settings.minio_frames_bucket):
+                self._client.make_bucket(settings.minio_frames_bucket)
+                logger.info("created_minio_bucket name=%s", settings.minio_frames_bucket)
+        except Exception as e:
+            logger.warning("minio_bucket_check_warning name=%s error=%s", settings.minio_frames_bucket, e)
+
     def _upload(self, object_key: str, jpeg_bytes: bytes) -> None:
         # blocking minio upload. runs outside event loop.
+        self._ensure_bucket()
         self._client.put_object(
             bucket_name=settings.minio_frames_bucket,
             object_name=object_key,

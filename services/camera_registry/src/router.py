@@ -39,6 +39,16 @@ async def cameras_for_uc(uc_id: str, service: CameraRegistryService = Depends(ge
     camera_ids = await service.get_cameras_for_uc(uc_id)
     return {"uc_id": uc_id, "camera_ids": camera_ids}
 
+@router.get("/{camera_id}")
+async def get_camera_by_id(
+    camera_id: str,
+    service: CameraRegistryService = Depends(get_service),
+):
+    camera = await service.get_camera(camera_id)
+    if not camera:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    return camera
+
 @router.get("/{camera_id}/status")
 async def get_status(
     camera_id: str,

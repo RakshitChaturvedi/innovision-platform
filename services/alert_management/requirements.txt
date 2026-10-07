@@ -5,6 +5,7 @@ pydantic-settings
 redis
 sqlalchemy
 asyncpg
+greenlet
 PyJWT
 python-socketio
 celery

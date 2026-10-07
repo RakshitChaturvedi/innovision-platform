@@ -130,9 +130,8 @@ class CameraIngestionTask:
         try:
             await self._frame_store.upload(object_key, jpeg_bytes)
         except Exception as e:
-            logger.error("frame_store_failed camera_id=%s frame_seq=%d error=%s", 
-                         self.camera_id, frame_seq, e)
-            return
+            logger.warning("frame_store_warning camera_id=%s frame_seq=%d error=%s", 
+                           self.camera_id, frame_seq, e)
 
         # 4. publish frame event
         try:

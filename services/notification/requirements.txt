@@ -5,4 +5,5 @@ pydantic-settings
 redis
 sqlalchemy
 asyncpg
+greenlet
 bcrypt

@@ -10,8 +10,13 @@ interface LiveFeedProps {
   overlay?: ReactNode;
 }
 
+const DEFAULT_HOST =
+  typeof window !== "undefined" && window.location.hostname
+    ? window.location.hostname
+    : "localhost";
+
 const STREAM_URL =
-  import.meta.env.VITE_INGESTION_API_URL || "http://localhost:8000";
+  import.meta.env.VITE_INGESTION_API_URL || `http://${DEFAULT_HOST}:8020`;
 
 export default function LiveFeed({
   cameraId,

@@ -312,6 +312,29 @@ services:
 
     restart: unless-stopped
 
+  uc3:
+    build:
+      context: ..
+      dockerfile: services/uc3/Dockerfile
+    container_name: innovision_uc3
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      CAMERA_REGISTRY_URL: http://camera_registry:8011
+      TEST_CAMERA_ID: "00000000-0000-0000-0000-000000000003"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+      minio:    { condition: service_healthy }
+      camera_registry: { condition: service_healthy }
+    ports:
+      - "8023:8023"
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:
