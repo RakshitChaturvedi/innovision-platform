@@ -224,9 +224,7 @@ class DeterministicVerifier:
         max_comp_ratio = (max_comp_area / float(spark_pixels)) if spark_pixels > 0 else 0.0
 
         is_spark_shower = (
-            num_labels >= 4 
-            and spark_pixels >= 15 
-            and (max_comp_area <= 250 or max_comp_ratio <= 0.50)
+            num_labels >= 4 and spark_pixels >= 15 and (max_comp_ratio <= 0.65 or num_labels >= 8)
         )
 
         # Single isolated spark size check: genuine sparks are compact particles

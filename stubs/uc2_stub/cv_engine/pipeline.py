@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+import cv2
 
 from shared.contracts.enums import AlertSeverity, SourceUC
 from stubs.uc2_stub.cv_engine.config import settings
@@ -83,6 +84,68 @@ class DetectionPipeline:
         self.pipeline_version = settings.pipeline_version
         self.model_version = settings.model_version
 
+    def _detect_cv_sparks(self, frame_bgr: np.ndarray) -> List[Dict[str, Any]]:
+        """
+        Classical CV extraction layer for flying incandescent sparks and arc flash bursts.
+        Recovers fast-moving transient particles, streaks, and showers that YOLO may miss.
+        """
+        h, w = frame_bgr.shape[:2]
+        hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
+        gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+
+        v_chan = hsv[:, :, 2]
+        # High brightness spark particles (white & golden sparks)
+        spark_mask = cv2.inRange(v_chan, 215, 255)
+
+        # Exclude deep flame cores (orange-red high-saturation areas)
+        flame_mask = cv2.inRange(hsv, np.array([0, 110, 120]), np.array([35, 255, 255]))
+        flame_dil = cv2.dilate(flame_mask, cv2.getStructuringElement(cv2.MORPH_RECT, (11, 11)), iterations=1)
+        spark_only_mask = cv2.bitwise_and(spark_mask, cv2.bitwise_not(flame_dil))
+
+        # Connect nearby flying sparks into coherent burst envelopes
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (21, 21))
+        dilated = cv2.dilate(spark_only_mask, kernel, iterations=1)
+        contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        candidates = []
+        for c in contours:
+            x, y, cw, ch = cv2.boundingRect(c)
+            area = cw * ch
+            if area < 30 or area > 160000:
+                continue
+            pad = 4
+            x1 = max(0, x - pad)
+            y1 = max(0, y - pad)
+            x2 = min(w, x + cw + pad)
+            y2 = min(h, y + ch + pad)
+
+            roi_gray = gray[y1:y2, x1:x2]
+            if roi_gray.size == 0:
+                continue
+            std_val = float(np.std(roi_gray))
+            max_val = float(np.max(roi_gray))
+            avg_val = float(np.mean(roi_gray))
+
+            if max_val < 220 or (max_val - avg_val) < 20.0:
+                continue
+            if avg_val > 200 and std_val < 20.0:
+                continue
+
+            spk_px = int(np.count_nonzero(spark_only_mask[y1:y2, x1:x2]))
+            if spk_px < 3:
+                continue
+
+            conf = float(min(0.92, max(0.55, 0.45 + (std_val / 40.0) * 0.35 + min(0.15, spk_px / 150.0))))
+            candidates.append({
+                "detection_type": "sparks",
+                "confidence": round(conf, 4),
+                "bbox": {"x1": x1, "y1": y1, "x2": x2, "y2": y2},
+                "raw_class_name": "sparks",
+                "class_id": 2,
+                "source": "cv_spark",
+            })
+        return candidates
+
     def process_frame(
         self,
         camera_id: str,
@@ -100,6 +163,20 @@ class DetectionPipeline:
         # Stage 1: YOLO26m Fire & Smoke Inference
         raw_candidates, infer_latency = self.yolo.infer(frame_bgr)
         t_after_infer = time.perf_counter()
+
+        # Stage 1.2: CV Spark Burst & Shower Enhancement (captures flying sparks missed by YOLO)
+        cv_sparks = self._detect_cv_sparks(frame_bgr)
+        for cv_s in cv_sparks:
+            c_bb = cv_s["bbox"]
+            c_area = max(1, (c_bb["x2"] - c_bb["x1"]) * (c_bb["y2"] - c_bb["y1"]))
+            duplicate = any(
+                yd["detection_type"] in ("sparks", "spark") and
+                (max(0, min(c_bb["x2"], yd["bbox"]["x2"]) - max(c_bb["x1"], yd["bbox"]["x1"])) *
+                 max(0, min(c_bb["y2"], yd["bbox"]["y2"]) - max(c_bb["y1"], yd["bbox"]["y1"]))) / float(c_area) > 0.50
+                for yd in raw_candidates
+            )
+            if not duplicate:
+                raw_candidates.append(cv_s)
 
         confirmed: List[ConfirmedDetection] = []
         suppressed: List[Dict[str, Any]] = []
@@ -183,6 +260,7 @@ class DetectionPipeline:
             texture_score = v_result.texture_score
 
             # Stage 4: Temporal Persistence
+            is_spark = det_type in ("sparks", "spark")
             # Key based on spatial centroid proximity to preserve temporal track
             cx_norm = round((x1 + x2) / (2.0 * w), 2)
             cy_norm = round((y1 + y2) / (2.0 * h), 2)
@@ -194,6 +272,12 @@ class DetectionPipeline:
                 det_key=temporal_key,
                 raw_confidence=yolo_conf,
             )
+
+            # Sparks are fast-moving transient hazards that scatter and travel across frames.
+            # Once verified by Stage 2/3 deterministic verifier, confirm immediately.
+            if is_spark:
+                is_persistent = True
+                temp_score = max(temp_score, 0.85)
 
             # Stage 5: False Alarm Suppression
             suppression_decision = self.suppressor.evaluate(
@@ -225,12 +309,12 @@ class DetectionPipeline:
                 yolo_conf=yolo_conf,
                 hsv_score=hsv_score,
                 texture_score=texture_score,
-                temporal_score=temp_score if not single_frame else max(temp_score, 0.75),
+                temporal_score=temp_score if not (single_frame or is_spark) else max(temp_score, 0.75),
                 det_type=det_type,
             )
 
             # Check if detection passes minimal confidence and temporal gate
-            if (is_persistent or single_frame) and fusion_result.final_confidence >= settings.conf_threshold:
+            if (is_persistent or single_frame or is_spark) and fusion_result.final_confidence >= settings.conf_threshold:
                 # Upgrade severity if inside a CRITICAL or HIGH priority zone
                 severity = fusion_result.severity
                 if zone_match.zone_priority.upper() == "CRITICAL" and severity in (
