@@ -168,6 +168,17 @@ class DetectionPipeline:
 
             # Stage 2 & Stage 3: Deterministic HSV, Texture, Gradient & Entropy Verification
             v_result = self.verifier.verify(roi, det_type)
+            if not v_result.passed:
+                suppressed.append({
+                    "detection_type": det_type,
+                    "bbox": bbox_dict,
+                    "reason": v_result.rejection_reason or "verifier_rejected",
+                    "yolo_confidence": yolo_conf,
+                    "zone_id": zone_match.zone_id,
+                    "frame_seq": frame_seq,
+                })
+                continue
+
             hsv_score = v_result.hsv_score
             texture_score = v_result.texture_score
 

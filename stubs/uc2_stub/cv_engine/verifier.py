@@ -188,8 +188,8 @@ class DeterministicVerifier:
                 scores={"avg_brightness": avg_val, "std": std_val},
             )
 
-        # Spark particles mask (high brightness and distinct contrast)
-        spark_mask = cv2.inRange(roi_hsv, np.array([0, 20, 200]), np.array([180, 255, 255]))
+        # Spark particles mask (high brightness and distinct contrast, white and golden sparks)
+        spark_mask = cv2.inRange(roi_hsv, np.array([0, 0, 180]), np.array([180, 255, 255]))
         spark_pixels = int(np.count_nonzero(spark_mask))
         spark_ratio = spark_pixels / float(total_px) if total_px > 0 else 0.0
 
@@ -217,8 +217,28 @@ class DeterministicVerifier:
                 scores=scores,
             )
 
+        # Connected components for spark particles & floodlight/screen checks
+        num_labels, _labels, stats, _centroids = cv2.connectedComponentsWithStats(spark_mask)
+        comp_areas = stats[1:, cv2.CC_STAT_AREA] if num_labels > 1 else [0]
+        max_comp_area = int(max(comp_areas)) if len(comp_areas) > 0 else 0
+        max_comp_ratio = (max_comp_area / float(spark_pixels)) if spark_pixels > 0 else 0.0
+
+        is_spark_shower = (
+            num_labels >= 4 
+            and spark_pixels >= 15 
+            and (max_comp_area <= 250 or max_comp_ratio <= 0.50)
+        )
+
+        # Single isolated spark size check: genuine sparks are compact particles
+        if not is_spark_shower and (roi_bgr.shape[0] > 60 or roi_bgr.shape[1] > 60 or total_px > 2500):
+            return VerificationResult(
+                passed=False,
+                rejection_reason=f"spark_box_too_large ({roi_bgr.shape[1]}x{roi_bgr.shape[0]}, area={total_px})",
+                scores=scores,
+            )
+
         # Reject diffuse smoke cloud or overcast daylight patch misclassified as sparks
-        if spark_pixels > 0:
+        if spark_pixels > 0 and not is_spark_shower:
             active_spark_hsv = roi_hsv[spark_mask > 0]
             avg_spark_sat = float(np.mean(active_spark_hsv[:, 1]))
             # If bright pixels are desaturated (gray/white smoke or cloud)
@@ -229,15 +249,36 @@ class DeterministicVerifier:
                     scores=scores,
                 )
 
-        # Check for static floodlight bulb / large uniform lamp fixture
-        num_labels, _labels, stats, _centroids = cv2.connectedComponentsWithStats(spark_mask)
-        if num_labels > 1:
-            max_component_area = max(stats[1:, cv2.CC_STAT_AREA]) if len(stats) > 1 else 0
-            # If a single solid connected component covers > 80% of ROI and has large area, it's a static lamp fixture
-            if max_component_area > 2000 and (max_component_area / float(total_px)) > 0.80 and std_val < 30.0:
+        # Check for static ceiling lamp fixture / high-bay light / LED troffer
+        if num_labels > 1 and not is_spark_shower:
+            active_spark_hsv = roi_hsv[spark_mask > 0]
+            avg_spark_sat = float(np.mean(active_spark_hsv[:, 1])) if spark_pixels > 0 else 0.0
+            if max_comp_area >= 60 and (avg_spark_sat < 65.0) and (max_comp_area > 90 or max_comp_ratio > 0.35):
                 return VerificationResult(
                     passed=False,
-                    rejection_reason=f"static_floodlight_bulb (comp_area={max_component_area}, ratio={max_component_area/total_px:.2f})",
+                    rejection_reason=f"lamp_or_light_fixture (comp_area={max_comp_area}, sat={avg_spark_sat:.1f})",
+                    scores=scores,
+                )
+
+        # Check for illuminated computer monitors / machine control displays
+        if total_px > 200 and max_comp_area > 70 and not is_spark_shower:
+            active_spark_hsv = roi_hsv[spark_mask > 0]
+            avg_spark_sat = float(np.mean(active_spark_hsv[:, 1])) if spark_pixels > 0 else 0.0
+            if avg_spark_sat < 70.0:
+                return VerificationResult(
+                    passed=False,
+                    rejection_reason=f"illuminated_screen_or_monitor (area={total_px}, comp_area={max_comp_area})",
+                    scores=scores,
+                )
+
+        # Check for reflective white surfaces / metallic packaging
+        if total_px > 500 and not is_spark_shower:
+            active_spark_hsv = roi_hsv[spark_mask > 0] if spark_pixels > 0 else None
+            avg_spark_sat = float(np.mean(active_spark_hsv[:, 1])) if active_spark_hsv is not None and len(active_spark_hsv) > 0 else 0.0
+            if avg_val > 120.0 and avg_spark_sat < 45.0:
+                return VerificationResult(
+                    passed=False,
+                    rejection_reason=f"reflective_surface_or_box (avg_val={avg_val:.1f}, sat={avg_spark_sat:.1f})",
                     scores=scores,
                 )
 
