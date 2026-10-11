@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy import text
 from collections.abc import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,13 +16,6 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with _session_factory() as session:
         yield session
 
-async def get_optional_user(authorization: str | None = Header(None)) -> dict | None:
-    if not authorization:
-        return None
-    try:
-        return await get_current_user(authorization=authorization)
-    except Exception:
-        return None
 
 @router.get("")
 async def list_alerts(
@@ -32,28 +25,42 @@ async def list_alerts(
     camera_id: str | None = None,
     limit: int = 50,
     offset: int = 0,
-    user: dict = Depends(get_optional_user),
+    user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    conditions, params = [], {"limit": limit, "offset": offset}
+    user_role = user.get("role")
+    user_org = user.get("org_id") or user.get("organization_id")
 
-    if user and user.get("role") not in ("superadmin", "admin"):
-        conditions.append("camera_id = ANY(:allowed_cameras)")
-        params["allowed_cameras"] = user.get("camera_ids", [])
+    conditions, params = [], {"limit": limit, "offset": offset}
+    join_cameras = False
+
+    if user_role != Role.SUPERADMIN:
+        if not user_org:
+            raise HTTPException(status_code=403, detail="User has no assigned organization")
+        join_cameras = True
+        conditions.append("(c.organization_id = :org_id OR a.camera_id IS NULL)")
+        params["org_id"] = str(user_org)
+
+        if user_role not in (Role.ADMIN, Role.ORG_ADMIN):
+            camera_ids = user.get("camera_ids", [])
+            if camera_ids:
+                conditions.append("a.camera_id = ANY(:allowed_cameras)")
+                params["allowed_cameras"] = camera_ids
 
     if source_uc:
-        conditions.append("source_uc = :source_uc"); params["source_uc"] = source_uc
+        conditions.append("a.source_uc = :source_uc"); params["source_uc"] = source_uc
     if severity:
-        conditions.append("severity = :severity"); params["severity"] = severity
+        conditions.append("a.severity = :severity"); params["severity"] = severity
     if status:
-        conditions.append("status = :status"); params["status"] = status
+        conditions.append("a.status = :status"); params["status"] = status
     if camera_id:
-        conditions.append("camera_id = :camera_id"); params["camera_id"] = camera_id
+        conditions.append("a.camera_id = :camera_id"); params["camera_id"] = camera_id
 
+    join_clause = "LEFT JOIN cameras c ON a.camera_id = c.id" if join_cameras else ""
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
     rows = await db.execute(text(f"""
-        SELECT * FROM alerts {where}
-        ORDER BY created_at DESC LIMIT :limit OFFSET :offset
+        SELECT a.* FROM alerts a {join_clause} {where}
+        ORDER BY a.created_at DESC LIMIT :limit OFFSET :offset
     """), params)
     return [dict(r._mapping) for r in rows.fetchall()]
 
@@ -62,19 +69,38 @@ async def list_alerts(
 async def acknowledge(
     alert_id: str, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ):
+    user_role = user.get("role")
+    user_org = user.get("org_id") or user.get("organization_id")
+
+    # Verify existence and tenant ownership
+    check_row = await db.execute(text("""
+        SELECT a.id, a.alert_id, c.organization_id
+        FROM alerts a
+        LEFT JOIN cameras c ON a.camera_id = c.id
+        WHERE a.alert_id::text = :alert_id OR a.id::text = :alert_id
+    """), {"alert_id": alert_id})
+    alt = check_row.fetchone()
+    if not alt:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    if user_role != Role.SUPERADMIN:
+        if not user_org or (alt.organization_id and str(alt.organization_id) != str(user_org)):
+            raise HTTPException(status_code=403, detail="Cross-organization alert triage forbidden")
+
+    actual_alert_id = str(alt.alert_id)
     async with db.begin():
         await db.execute(text("""
             UPDATE alerts SET status = 'acknowledged',
                 acknowledged_at = now(), acknowledged_by = :user_id
-            WHERE alert_id = :alert_id
+            WHERE alert_id::text = :alert_id OR id::text = :alert_id
         """), {"alert_id": alert_id, "user_id": user["sub"]})
 
         await write_audit_entry(
             _session_factory, service="alert_management", action="alert_acknowledged",
-            entity_type="alert", entity_id=alert_id, user_id=user["sub"], session=db
+            entity_type="alert", entity_id=actual_alert_id, user_id=user["sub"], session=db
         )
 
-    row = (await db.execute(text("SELECT * FROM alerts WHERE alert_id = :id"),
+    row = (await db.execute(text("SELECT * FROM alerts WHERE alert_id::text = :id OR id::text = :id"),
                              {"id": alert_id})).fetchone()
     await push_alert_update(dict(row._mapping))
     return {"status": "acknowledged"}
@@ -84,19 +110,38 @@ async def acknowledge(
 async def resolve(
     alert_id: str, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ):
+    user_role = user.get("role")
+    user_org = user.get("org_id") or user.get("organization_id")
+
+    # Verify existence and tenant ownership
+    check_row = await db.execute(text("""
+        SELECT a.id, a.alert_id, c.organization_id
+        FROM alerts a
+        LEFT JOIN cameras c ON a.camera_id = c.id
+        WHERE a.alert_id::text = :alert_id OR a.id::text = :alert_id
+    """), {"alert_id": alert_id})
+    alt = check_row.fetchone()
+    if not alt:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    if user_role != Role.SUPERADMIN:
+        if not user_org or (alt.organization_id and str(alt.organization_id) != str(user_org)):
+            raise HTTPException(status_code=403, detail="Cross-organization alert triage forbidden")
+
+    actual_alert_id = str(alt.alert_id)
     async with db.begin():
         await db.execute(text("""
             UPDATE alerts SET status = 'resolved',
                 resolved_at = now(), resolved_by = :user_id
-            WHERE alert_id = :alert_id
+            WHERE alert_id::text = :alert_id OR id::text = :alert_id
         """), {"alert_id": alert_id, "user_id": user["sub"]})
 
         await write_audit_entry(
             _session_factory, service="alert_management", action="alert_resolved",
-            entity_type="alert", entity_id=alert_id, user_id=user["sub"], session=db
+            entity_type="alert", entity_id=actual_alert_id, user_id=user["sub"], session=db
         )
 
-    row = (await db.execute(text("SELECT * FROM alerts WHERE alert_id = :id"),
+    row = (await db.execute(text("SELECT * FROM alerts WHERE alert_id::text = :id OR id::text = :id"),
                              {"id": alert_id})).fetchone()
     await push_alert_update(dict(row._mapping))
     return {"status": "resolved"}
@@ -104,28 +149,60 @@ async def resolve(
 
 @router.get("/unacknowledged")
 async def unacknowledged(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    camera_filter = (
-        "" if user["role"] in ("superadmin", "admin")
-        else "AND camera_id = ANY(:camera_ids)"
-    )
-    params = {} if user["role"] in ("superadmin", "admin") else {"camera_ids": user["camera_ids"]}
+    user_role = user.get("role")
+    user_org = user.get("org_id") or user.get("organization_id")
 
+    conditions = ["a.status = 'pending'"]
+    params = {}
+    join_cameras = False
+
+    if user_role != Role.SUPERADMIN:
+        if not user_org:
+            raise HTTPException(status_code=403, detail="User has no assigned organization")
+        join_cameras = True
+        conditions.append("(c.organization_id = :org_id OR a.camera_id IS NULL)")
+        params["org_id"] = str(user_org)
+
+        if user_role not in (Role.ADMIN, Role.ORG_ADMIN):
+            camera_ids = user.get("camera_ids", [])
+            if camera_ids:
+                conditions.append("a.camera_id = ANY(:camera_ids)")
+                params["camera_ids"] = camera_ids
+
+    join_clause = "LEFT JOIN cameras c ON a.camera_id = c.id" if join_cameras else ""
+    where = f"WHERE {' AND '.join(conditions)}"
     rows = await db.execute(text(f"""
-        SELECT * FROM alerts WHERE status = 'pending' {camera_filter}
-        ORDER BY created_at DESC
+        SELECT a.* FROM alerts a {join_clause} {where}
+        ORDER BY a.created_at DESC
     """), params)
     return [dict(r._mapping) for r in rows.fetchall()]
 
 
 @router.get("/count")
 async def count(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    camera_filter = (
-        "" if user["role"] in ("superadmin", "admin")
-        else "AND camera_id = ANY(:camera_ids)"
-    )
-    params = {} if user["role"] in ("superadmin", "admin") else {"camera_ids": user["camera_ids"]}
+    user_role = user.get("role")
+    user_org = user.get("org_id") or user.get("organization_id")
 
+    conditions = ["a.status = 'pending'"]
+    params = {}
+    join_cameras = False
+
+    if user_role != Role.SUPERADMIN:
+        if not user_org:
+            raise HTTPException(status_code=403, detail="User has no assigned organization")
+        join_cameras = True
+        conditions.append("(c.organization_id = :org_id OR a.camera_id IS NULL)")
+        params["org_id"] = str(user_org)
+
+        if user_role not in (Role.ADMIN, Role.ORG_ADMIN):
+            camera_ids = user.get("camera_ids", [])
+            if camera_ids:
+                conditions.append("a.camera_id = ANY(:camera_ids)")
+                params["camera_ids"] = camera_ids
+
+    join_clause = "LEFT JOIN cameras c ON a.camera_id = c.id" if join_cameras else ""
+    where = f"WHERE {' AND '.join(conditions)}"
     row = await db.execute(text(f"""
-        SELECT count(*) AS c FROM alerts WHERE status = 'pending' {camera_filter}
+        SELECT count(*) AS c FROM alerts a {join_clause} {where}
     """), params)
-    return {"count": row.fetchone().c}
+    return {"count": row.fetchone().c}

@@ -16,13 +16,21 @@ import { ErrorState } from "@/components/common/ErrorState";
 import { LoadingState } from "@/components/common/LoadingState";
 import AlertCard from "@/components/alerts/AlertCard";
 
+import { useAuth } from "@/store/useAuth";
+import { hasMinimumRole } from "@/lib/rbac";
+import type { Alert } from "@/types/alert";
+
 interface AlertListProps {
   filters: AlertFilters;
+  onCreateIncident?: (alert: Alert) => void;
 }
 
 export default function AlertList({
   filters,
+  onCreateIncident,
 }: AlertListProps) {
+  const { user } = useAuth();
+  const canOperate = hasMinimumRole(user, "operator");
   const {
     data,
     isLoading,
@@ -74,8 +82,9 @@ export default function AlertList({
         <AlertCard
           key={alert.id}
           alert={alert}
-          onAcknowledge={(alertId) => acknowledgeMutation.mutate(alertId)}
-          onResolve={(alertId) => resolveMutation.mutate(alertId)}
+          onAcknowledge={canOperate ? ((alertId) => acknowledgeMutation.mutate(alertId)) : undefined}
+          onResolve={canOperate ? ((alertId) => resolveMutation.mutate(alertId)) : undefined}
+          onCreateIncident={canOperate ? onCreateIncident : undefined}
           isAcknowledging={acknowledgeMutation.isPending}
           isResolving={resolveMutation.isPending}
         />

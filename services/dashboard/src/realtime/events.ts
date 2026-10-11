@@ -34,8 +34,24 @@ export interface SocketJoinError {
   camera_ids: string[];
 }
 
+export interface SocketNotification {
+  id: string;
+  organization_id: string | null;
+  recipient_user_id: string;
+  type: string;
+  title: string;
+  message: string;
+  severity: "low" | "medium" | "high" | "critical";
+  resource_type: string | null;
+  resource_id: string | null;
+  metadata: Record<string, unknown>;
+  is_read: boolean;
+  created_at: string;
+}
+
 export const SOCKET_EVENTS = {
   ALERT_NEW: "alert:new",
   ALERT_UPDATED: "alert:updated",
   ALERT_MISSED: "alert:missed",
+  NOTIFICATION_NEW: "notification:new",
 } as const;

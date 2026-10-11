@@ -14,8 +14,9 @@ config = context.config
 
 database_url = os.getenv("DATABASE_URL")
 if database_url:
-    if "@postgres:5432" in database_url:
-        database_url = database_url.replace("@postgres:5432", "@localhost:5432")
+    in_container = os.path.exists("/.dockerenv") or os.getenv("DOCKER_CONTAINER") == "true"
+    if not in_container:
+        database_url = os.getenv("DATABASE_URL_LOCAL", database_url.replace("@postgres:5432", "@localhost:5433"))
     config.set_main_option("sqlalchemy.url", database_url)
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

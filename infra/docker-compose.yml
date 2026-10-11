@@ -14,7 +14,7 @@ services:
       retries: 10
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "5433:5432"
 
   redis:
     image: redis:7-alpine
@@ -274,6 +274,22 @@ services:
     ports:
       - "8004:8000"
 
+    restart: unless-stopped
+
+  reporting:
+    build:
+      context: ..
+      dockerfile: services/reporting/Dockerfile
+    container_name: innovision_reporting
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ALGORITHM: HS256
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8005:8000"
     restart: unless-stopped
 
   reporting_worker:

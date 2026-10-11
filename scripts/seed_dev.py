@@ -1,4 +1,6 @@
-import asyncio, os, uuid
+import asyncio, os, sys, uuid
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from dotenv import load_dotenv
 from sqlalchemy import text
@@ -7,9 +9,7 @@ from services.auth.src.jwt import hash_password
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL_LOCAL")
-if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL is not set")
+DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("DATABASE_URL_LOCAL") or "postgresql+asyncpg://innovision:changeme@postgres:5432/innovision_platform"
 
 DEV_PASSWORD = "admin123"
 

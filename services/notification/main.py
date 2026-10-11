@@ -2,11 +2,10 @@ import asyncio
 import logging
 import sys
 from contextlib import asynccontextmanager
-
 from fastapi import FastAPI
 
 from services.notification.src.consumer import NotificationConsumer
-
+from services.notification.src.router import router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,6 +43,8 @@ app = FastAPI(
     title="Notification Service",
     lifespan=lifespan,
 )
+
+app.include_router(router)
 
 
 @app.get("/health")

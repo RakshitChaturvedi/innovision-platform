@@ -4,6 +4,7 @@ interface AlertCardProps {
   alert: Alert;
   onAcknowledge?: (alertId: string) => void;
   onResolve?: (alertId: string) => void;
+  onCreateIncident?: (alert: Alert) => void;
   isAcknowledging?: boolean;
   isResolving?: boolean;
 }
@@ -38,6 +39,7 @@ export default function AlertCard({
   alert,
   onAcknowledge,
   onResolve,
+  onCreateIncident,
   isAcknowledging = false,
   isResolving = false,
 }: AlertCardProps) {
@@ -104,6 +106,16 @@ export default function AlertCard({
               Resolve
             </button>
           )}
+
+        {onCreateIncident && (
+          <button
+            type="button"
+            className="alert-action-button"
+            onClick={() => onCreateIncident(alert)}
+          >
+            Create Incident
+          </button>
+        )}
       </div>
     </article>
   );

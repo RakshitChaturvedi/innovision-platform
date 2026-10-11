@@ -7,7 +7,6 @@ from alembic import op
 
 def upgrade():
     op.execute("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"")
-    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
     op.execute("""
         CREATE TYPE camera_status AS ENUM ('online', 'offline', 'reconnecting', 'disabled')

@@ -127,6 +127,16 @@ export default function SocketProvider({
       });
     };
 
+    const handleNotificationNew = (notification: unknown) => {
+      console.log("[Socket] notification:new", notification);
+      queryClient.invalidateQueries({
+        queryKey: ["notifications"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["notifications", "unread-count"],
+      });
+    };
+
     socket.on("connect", handleConnect);
     socket.on("disconnect", handleDisconnect);
     socket.on("connect_error", handleConnectError);
@@ -134,6 +144,7 @@ export default function SocketProvider({
     socket.on(SOCKET_EVENTS.ALERT_NEW, handleNewAlert);
     socket.on(SOCKET_EVENTS.ALERT_UPDATED, handleUpdatedAlert);
     socket.on(SOCKET_EVENTS.ALERT_MISSED, handleMissedAlert);
+    socket.on(SOCKET_EVENTS.NOTIFICATION_NEW, handleNotificationNew);
 
     console.log("[Socket] connecting...");
     socket.connect();
@@ -148,6 +159,7 @@ export default function SocketProvider({
       socket.off(SOCKET_EVENTS.ALERT_NEW, handleNewAlert);
       socket.off(SOCKET_EVENTS.ALERT_UPDATED, handleUpdatedAlert);
       socket.off(SOCKET_EVENTS.ALERT_MISSED, handleMissedAlert);
+      socket.off(SOCKET_EVENTS.NOTIFICATION_NEW, handleNotificationNew);
 
       socket.disconnect();
     };

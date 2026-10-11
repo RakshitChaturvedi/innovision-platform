@@ -1,145 +1,135 @@
+import os
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Header
-from sqlalchemy import text
-from collections.abc import AsyncGenerator
-from sqlalchemy.ext.asyncio import AsyncSession
-import uuid
-
-from services.auth.src.rbac import require_role, Role, get_current_user
-from services.audit.src.writer import write_audit_entry
 from shared.platform_client.db import get_session_factory
+from services.auth.src.rbac import get_current_user, require_role, Role
 
 from .config import settings
-from .workflow import is_valid_transition, all_valid_next_states
-from .timeline import append_entry, fetch_timeline
+from .service import IncidentService
+from .schemas import (
+    IncidentCreate,
+    IncidentUpdate,
+    IncidentStatusUpdate,
+    IncidentAssignUpdate,
+    IncidentResponse,
+    IncidentDetailResponse,
+    IncidentSummaryResponse,
+)
 
 router = APIRouter(prefix="/incidents", tags=["incidents"])
-_session_factory = get_session_factory(settings.database_url)
 
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    async with _session_factory() as session:
-        yield session
+def get_service() -> IncidentService:
+    db_url = settings.database_url or os.environ.get(
+        "DATABASE_URL",
+        "postgresql+asyncpg://innovision:changeme@localhost:5433/innovision_platform"
+    )
+    session_factory = get_session_factory(db_url)
+    return IncidentService(session_factory)
 
-async def get_optional_user(authorization: str | None = Header(None)) -> dict | None:
-    if not authorization:
-        return None
-    try:
-        return await get_current_user(authorization=authorization)
-    except Exception:
-        return None
 
-@router.get("")
+@router.get("", response_model=list[IncidentResponse])
 async def list_incidents(
-    status: str | None = None,
-    assigned_to: str | None = None,
-    user: dict = Depends(get_optional_user),
-    db: AsyncSession = Depends(get_db),
+    status: Optional[str] = None,
+    severity: Optional[str] = None,
+    organization_id: Optional[str] = None,
+    site_id: Optional[str] = None,
+    zone_id: Optional[str] = None,
+    camera_id: Optional[str] = None,
+    assigned_to: Optional[str] = None,
+    source_type: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    user: dict = Depends(get_current_user),
+    service: IncidentService = Depends(get_service),
 ):
-    conditions, params = [], {}
-    if status:
-        conditions.append("status = :status"); params["status"] = status
-    if assigned_to:
-        conditions.append("assigned_to = :assigned_to"); params["assigned_to"] = assigned_to
+    return await service.list_incidents(
+        user=user,
+        status=status,
+        severity=severity,
+        organization_id=organization_id,
+        site_id=site_id,
+        zone_id=zone_id,
+        camera_id=camera_id,
+        assigned_to=assigned_to,
+        source_type=source_type,
+        limit=limit,
+        offset=offset,
+    )
 
-    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-    rows = await db.execute(text(f"""
-        SELECT * FROM incidents {where} ORDER BY created_at DESC
-    """), params)
-    return [dict(r._mapping) for r in rows.fetchall()]
+
+@router.get("/summary", response_model=IncidentSummaryResponse)
+async def get_incident_summary(
+    organization_id: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+    service: IncidentService = Depends(get_service),
+):
+    return await service.get_incident_summary(user=user, organization_id=organization_id)
 
 
-@router.get("/{incident_id}")
+@router.get("/{incident_id}", response_model=IncidentDetailResponse)
 async def get_incident(
-    incident_id: str, user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    incident_id: str,
+    user: dict = Depends(get_current_user),
+    service: IncidentService = Depends(get_service),
 ):
-    row = await db.execute(text("SELECT * FROM incidents WHERE id = :id"), {"id": incident_id})
-    incident = row.fetchone()
-    if not incident:
-        raise HTTPException(status_code=404, detail="Incident not found")
-
-    timeline = await fetch_timeline(db, incident_id)
-    return {
-        "incident": dict(incident._mapping),
-        "timeline": timeline,
-        "valid_next_states": all_valid_next_states(incident.status),
-    }
+    return await service.get_incident(incident_id, user=user)
 
 
-@router.patch("/{incident_id}/status", dependencies=[Depends(require_role(Role.OPERATOR))])
+@router.post("", response_model=IncidentDetailResponse, status_code=201, dependencies=[Depends(require_role(Role.OPERATOR))])
+async def create_incident(
+    body: IncidentCreate,
+    user: dict = Depends(get_current_user),
+    service: IncidentService = Depends(get_service),
+):
+    return await service.create_incident(data=body.model_dump(), user=user)
+
+
+@router.put("/{incident_id}", response_model=IncidentDetailResponse, dependencies=[Depends(require_role(Role.OPERATOR))])
+async def update_incident(
+    incident_id: str,
+    body: IncidentUpdate,
+    user: dict = Depends(get_current_user),
+    service: IncidentService = Depends(get_service),
+):
+    return await service.update_incident(incident_id=incident_id, data=body.model_dump(exclude_unset=True), user=user)
+
+
+@router.put("/{incident_id}/status", response_model=IncidentDetailResponse, dependencies=[Depends(require_role(Role.OPERATOR))])
 async def update_status(
     incident_id: str,
-    new_status: str,
+    body: IncidentStatusUpdate,
     user: dict = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    service: IncidentService = Depends(get_service),
 ):
-    current = (await db.execute(
-        text("SELECT status FROM incidents WHERE id = :id"), {"id": incident_id}
-    )).fetchone()
-    if not current:
-        raise HTTPException(status_code=404, detail="Incident not found")
-
-    if not is_valid_transition(current.status, new_status):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Cannot transition from '{current.status}' to '{new_status}'. "
-                   f"Valid next states: {all_valid_next_states(current.status)}",
-        )
-
-    async with db.begin():
-        await db.execute(text("""
-            UPDATE incidents SET status = :status, updated_at = now(),
-                resolved_at = CASE WHEN :status = 'resolved' THEN now() ELSE resolved_at END
-            WHERE id = :id
-        """), {"status": new_status, "id": incident_id})
-
-        await append_entry(
-            db, incident_id, action="status_changed", user_id=user["sub"],
-            from_status=current.status, to_status=new_status,
-        )
-
-        await write_audit_entry(
-            _session_factory, service="incident_management",
-            action="incident_status_changed", entity_type="incident",
-            entity_id=incident_id, user_id=user["sub"],
-            metadata={"from": current.status, "to": new_status}, session=db
-        )
-
-    return {"status": new_status}
+    return await service.update_status(incident_id=incident_id, new_status=body.status, user=user)
 
 
-@router.patch("/{incident_id}/assign", dependencies=[Depends(require_role(Role.OPERATOR))])
-async def assign(
+@router.put("/{incident_id}/assign", response_model=IncidentDetailResponse, dependencies=[Depends(require_role(Role.OPERATOR))])
+async def assign_incident(
     incident_id: str,
-    assignee_id: str,
+    body: IncidentAssignUpdate,
     user: dict = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    service: IncidentService = Depends(get_service),
 ):
-    exists = (await db.execute(
-        text("SELECT 1 FROM incidents WHERE id = :id"), {"id": incident_id}
-    )).fetchone()
-    if not exists:
-        raise HTTPException(status_code=404, detail="Incident not found")
-
-    async with db.begin():
-        await db.execute(text("""
-            UPDATE incidents SET assigned_to = :assignee_id WHERE id = :id
-        """), {"assignee_id": assignee_id, "id": incident_id})
-
-        await append_entry(
-            db, incident_id, action="assigned", user_id=user["sub"],
-            note=f"Assigned to operator {assignee_id}",
-        )
-
-    return {"status": "assigned", "assigned_to": assignee_id}
+    return await service.assign_incident(incident_id=incident_id, assignee_id=body.assigned_to, user=user)
 
 
-@router.post("/{incident_id}/notes", dependencies=[Depends(require_role(Role.OPERATOR))])
-async def add_note(
+@router.post("/{incident_id}/alerts/{alert_id}", response_model=IncidentDetailResponse, dependencies=[Depends(require_role(Role.OPERATOR))])
+async def link_alert(
     incident_id: str,
-    note: str,
+    alert_id: str,
     user: dict = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    service: IncidentService = Depends(get_service),
 ):
-    async with db.begin():
-        await append_entry(db, incident_id, action="note_added", user_id=user["sub"], note=note)
+    return await service.link_alert(incident_id=incident_id, alert_id=alert_id, user=user)
 
-    return {"status": "note_added"}
+
+@router.delete("/{incident_id}/alerts/{alert_id}", response_model=IncidentDetailResponse, dependencies=[Depends(require_role(Role.OPERATOR))])
+async def unlink_alert(
+    incident_id: str,
+    alert_id: str,
+    user: dict = Depends(get_current_user),
+    service: IncidentService = Depends(get_service),
+):
+    return await service.unlink_alert(incident_id=incident_id, alert_id=alert_id, user=user)
+

@@ -79,6 +79,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(router_module.router)
+app.include_router(router_module.analytics_router)
+app.include_router(router_module.organizations_router)
+app.include_router(router_module.zones_router)
 
 app.dependency_overrides[
     router_module.get_service

@@ -14,11 +14,12 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, hashed: str) -> bool:
     return bcrypt.checkpw(password.encode(), hashed.encode())
 
-def create_access_token(user_id: str, role: str, camera_ids: list[str]) -> str:
+def create_access_token(user_id: str, role: str, camera_ids: list[str], org_id: str | None = None) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sub": user_id,
         "role": role,
+        "org_id": org_id,
         "camera_ids": camera_ids,
         "iat": now,
         "exp": now + timedelta(minutes=settings.access_token_expire_minutes),
@@ -47,10 +48,9 @@ async def create_refresh_token(session: AsyncSession, user_id: str) -> str:
     return raw_token
 
 async def rotate_refresh_token(session: AsyncSession, old_raw_token: str, session_id: str) -> tuple[str, str, str] | None:
-    # validate old refresh token, revoke it, issue new one. return none if invalid
     row = await session.execute(text("""
         SELECT s.id, s.refresh_token_hash, s.expires_at, s.revoked_at, u.id AS user_id,
-                u.role, u.camera_ids
+                u.role, u.organization_id, u.camera_ids
         FROM sessions s
         JOIN users u ON u.id = s.user_id
         WHERE s.id = :session_id
@@ -69,5 +69,6 @@ async def rotate_refresh_token(session: AsyncSession, old_raw_token: str, sessio
         await session.execute(text("""UPDATE sessions SET revoked_at = now() WHERE id = :id"""),
                               {"id": session_id})
     new_refresh = await create_refresh_token(session, str(result.user_id))
-    new_access = create_access_token(str(result.user_id), result.role, [str(c) for c in result.camera_ids])
+    org_id_str = str(result.organization_id) if result.organization_id else None
+    new_access = create_access_token(str(result.user_id), result.role, [str(c) for c in (result.camera_ids or [])], org_id=org_id_str)
     return new_access, new_refresh, str(result.user_id)

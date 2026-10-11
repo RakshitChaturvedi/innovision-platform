@@ -1,9 +1,9 @@
 export function Unauthorized() {
   return (
-    <div className="flex min-h-[60vh] items-center justify-center">
-      <div className="text-center">
-        <h1 className="text-2xl font-semibold">Access Denied</h1>
-        <p className="mt-2 text-sm text-slate-500">
+    <div style={{ display: "flex", minHeight: "60vh", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ textAlign: "center" }}>
+        <h1 style={{ fontSize: "24px", fontWeight: 700, color: "var(--text-primary)" }}>Access Denied</h1>
+        <p style={{ marginTop: "8px", fontSize: "14px", color: "var(--text-muted)" }}>
           You do not have permission to access this page.
         </p>
       </div>

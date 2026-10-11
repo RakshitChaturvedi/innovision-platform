@@ -90,11 +90,13 @@ class AlertConsumer:
             logger.error("alert_persist_failed alert_id=%s error=%s", alert.alert_id, e)
             return
         
-        # 3. push to connected operators
+        # 3. push to connected operators & dispatch user notifications
         try:
             await push_alert(alert_row)
+            from services.notification.src.service import dispatch_alert_notifications
+            await dispatch_alert_notifications(_session_factory, alert_row)
         except Exception as e:
-            logger.error("socket_push_failed alert_id=%s error=%s", alert.alert_id, e)
+            logger.error("socket_push_or_notification_failed alert_id=%s error=%s", alert.alert_id, e)
 
         # 4. schedule escalation for severe alerts
         if alert.severity.value in ("high", "critical"):

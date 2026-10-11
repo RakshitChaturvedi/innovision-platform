@@ -11,7 +11,7 @@ export interface AuthContextValue {
   user: User | null;
   accessToken: string | null;
   isAuthenticated: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<User>;
   logout: () => Promise<void>;
 }
 
@@ -49,8 +49,11 @@ export function AuthProvider({
     );
 
     setAccessToken(response.access_token);
-    setUser(decodeAccessToken(response.access_token));
+    const decoded = decodeAccessToken(response.access_token);
+    setUser(decoded);
+    return decoded;
   }
+
 
   async function logout() {
     try {
