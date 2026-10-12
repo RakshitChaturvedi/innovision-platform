@@ -13,7 +13,10 @@ router = APIRouter(prefix="/uc3", tags=["uc3-ppe-detection"])
 consumer_manager = None  # Injected from main.py
 
 @router.get("/cameras/{camera_id}/latest-detections")
-async def get_latest_detections(camera_id: str) -> Dict[str, Any]:
+async def get_latest_detections(
+    camera_id: str,
+    session_id: str | None = None,
+) -> Dict[str, Any]:
     if consumer_manager is None:
         raise HTTPException(status_code=503, detail="UC3 service is initializing")
 
@@ -22,6 +25,8 @@ async def get_latest_detections(camera_id: str) -> Dict[str, Any]:
         return {
             "timestamp": "",
             "camera_id": camera_id,
+            "session_id": session_id,
+            "source_type": "uploaded_video" if session_id else "live_rtsp",
             "detections": [],
             "severity": "ok",
             "violations": [],

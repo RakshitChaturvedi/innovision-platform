@@ -1,6 +1,7 @@
 from enum import Enum
 from fastapi import Header, HTTPException, Depends
 from .jwt import decode_access_token
+from .config import settings
 
 class Role(str, Enum):
     SUPERADMIN = "superadmin"
@@ -17,10 +18,14 @@ ROLE_RANK = {
     Role.SUPERADMIN: 3
 }
 
-async def get_current_user(authorization: str = Header(...)) -> dict:
+async def get_current_user(authorization: str | None = Header(None)) -> dict:
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Authentication credentials required")
     if not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Invalid authorization header")
-    token = authorization.removeprefix("Bearer ")
+        raise HTTPException(status_code=401, detail="Invalid authorization header: expected 'Bearer <token>'")
+    token = authorization.removeprefix("Bearer ").strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Invalid authorization header: missing token")
     try:
         payload = decode_access_token(token)
     except Exception:

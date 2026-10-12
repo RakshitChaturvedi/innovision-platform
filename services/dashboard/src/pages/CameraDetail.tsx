@@ -1,13 +1,40 @@
-import { useQuery } from "@tanstack/react-query";
+import { useState, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
-import { getCameras, getCameraStatus } from "@/api/cameras";
+import {
+  getCameras,
+  getCameraStatus,
+  getCameraVideoSessions,
+  uploadCameraVideo,
+  createCameraVideoSessionFromTestFile,
+  processCameraVideoSession,
+  stopCameraVideoSession,
+  type VideoSession,
+} from "@/api/cameras";
 import { getCameraHierarchy, getCameraEffectiveAnalytics } from "@/api/platform";
 import { ErrorState } from "@/components/common/ErrorState";
 import { LoadingState } from "@/components/common/LoadingState";
 import LiveFeed from "@/components/cameras/LiveFeed";
 
+const AVAILABLE_TEST_VIDEOS = [
+  { name: "16864356_3840_2160_50fps.mp4", label: "Dynamic Test Video 1 (4K 50fps)" },
+  { name: "17039559_3840_2160_30fps.mp4", label: "Dynamic Test Video 2 (4K 30fps)" },
+  { name: "3c4cc90fb1dc4a51b0f4f75c5825156f.mp4", label: "Dynamic Test Video 3 (Standard)" },
+  { name: "uc2.mp4", label: "UC2 Test Sample" },
+  { name: "uc4.mp4", label: "UC4 Test Sample" },
+];
+
 export default function CameraDetail() {
   const { cameraId } = useParams<{ cameraId: string }>();
+  const queryClient = useQueryClient();
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const camerasQuery = useQuery({
     queryKey: ["cameras"],
@@ -33,6 +60,18 @@ export default function CameraDetail() {
     refetchInterval: 5000,
   });
 
+  const sessionsQuery = useQuery({
+    queryKey: ["cameraVideoSessions", cameraId],
+    queryFn: () => getCameraVideoSessions(cameraId as string),
+    enabled: Boolean(cameraId),
+    refetchInterval: (query) => {
+      const hasActive = query.state.data?.some(
+        (s) => s.status === "processing" || s.status === "queued"
+      );
+      return hasActive ? 2000 : 8000;
+    },
+  });
+
   if (!cameraId) {
     return <ErrorState message="Camera ID is missing." />;
   }
@@ -54,6 +93,8 @@ export default function CameraDetail() {
   const status = statusQuery.data ?? camera.status;
   const hierarchy = hierarchyQuery.data;
   const effectiveList = effectiveQuery.data || [];
+  const sessions = sessionsQuery.data || [];
+  const activeSession = sessions.find((s) => s.session_id === activeSessionId);
 
   const statusLabel =
     status === "online"
@@ -67,6 +108,114 @@ export default function CameraDetail() {
   const isSimulation = hierarchy?.is_simulation || hierarchy?.source_type === "test_simulation";
   const siteName = hierarchy?.site?.name || "Unassigned Site";
   const zoneName = hierarchy?.zone?.name || "Unassigned Zone";
+
+  // File selection validation
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setUploadError(null);
+    setActionError(null);
+    const file = e.target.files?.[0];
+    if (!file) {
+      setSelectedFile(null);
+      return;
+    }
+
+    const validExtensions = [".mp4", ".mov", ".avi", ".mkv"];
+    const fileExt = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
+    if (!validExtensions.includes(fileExt)) {
+      setUploadError(`Invalid video format '${fileExt}'. Allowed formats: ${validExtensions.join(", ")}`);
+      setSelectedFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    if (file.size > 200 * 1024 * 1024) {
+      setUploadError("File size exceeds 200 MB maximum limit.");
+      setSelectedFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    setSelectedFile(file);
+  };
+
+  const extractError = (err: unknown, fallback: string): string => {
+    if (err && typeof err === "object") {
+      const resp = (err as { response?: { data?: { detail?: string } }; message?: string });
+      if (resp.response?.data?.detail) return resp.response.data.detail;
+      if (resp.message) return resp.message;
+    }
+    return fallback;
+  };
+
+  // Upload handler
+  const handleUpload = async () => {
+    if (!selectedFile) return;
+    setIsSubmitting(true);
+    setUploadError(null);
+    setActionError(null);
+    setUploadProgress(0);
+
+    try {
+      const created = await uploadCameraVideo(cameraId, selectedFile, (pct) => {
+        setUploadProgress(pct);
+      });
+      setSelectedFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      setUploadProgress(null);
+      setActiveSessionId(created.session_id);
+      await queryClient.invalidateQueries({ queryKey: ["cameraVideoSessions", cameraId] });
+    } catch (err: unknown) {
+      setUploadError(extractError(err, "Failed to upload video."));
+      setUploadProgress(null);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Quick test video creation handler
+  const handleQuickAddTestVideo = async (filename: string) => {
+    setIsSubmitting(true);
+    setUploadError(null);
+    setActionError(null);
+    try {
+      const created = await createCameraVideoSessionFromTestFile(cameraId, filename);
+      setActiveSessionId(created.session_id);
+      await queryClient.invalidateQueries({ queryKey: ["cameraVideoSessions", cameraId] });
+    } catch (err: unknown) {
+      setActionError(extractError(err, "Failed to add test video."));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Start processing session
+  const handleStartSession = async (sessionId: string) => {
+    setIsSubmitting(true);
+    setActionError(null);
+    try {
+      await processCameraVideoSession(cameraId, sessionId);
+      setActiveSessionId(sessionId);
+      await queryClient.invalidateQueries({ queryKey: ["cameraVideoSessions", cameraId] });
+    } catch (err: unknown) {
+      setActionError(extractError(err, "Failed to start session processing."));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Stop processing session
+  const handleStopSession = async (sessionId: string) => {
+    setIsSubmitting(true);
+    setActionError(null);
+    try {
+      await stopCameraVideoSession(cameraId, sessionId);
+      await queryClient.invalidateQueries({ queryKey: ["cameraVideoSessions", cameraId] });
+    } catch (err: unknown) {
+      setActionError(extractError(err, "Failed to stop session."));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <main className="page camera-detail-page">
@@ -102,21 +251,379 @@ export default function CameraDetail() {
             </p>
           </div>
 
-          <span className={`status-badge status-${status}`}>
-            <span className="status-dot" />
-            {statusLabel}
-          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            {activeSessionId && (
+              <span
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  padding: "4px 10px",
+                  borderRadius: "4px",
+                  background: "var(--primary-bg, rgba(99, 102, 241, 0.15))",
+                  color: "var(--primary, #6366f1)",
+                  border: "1px solid var(--primary, #6366f1)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                }}
+              >
+                <span>SOURCE: UPLOADED VIDEO</span>
+                <button
+                  type="button"
+                  onClick={() => setActiveSessionId(null)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "inherit",
+                    cursor: "pointer",
+                    fontSize: "12px",
+                    padding: "0 2px",
+                  }}
+                  title="Switch to Live RTSP Feed"
+                >
+                  ✕
+                </button>
+              </span>
+            )}
+            <span className={`status-badge status-${status}`}>
+              <span className="status-dot" />
+              {statusLabel}
+            </span>
+          </div>
         </div>
       </header>
 
-      {/* Live Video Feed with Canvas Detection Overlays */}
+      {/* Feed Source Selector & Video Feed */}
       <section className="camera-detail-feed" aria-label={`${camera.name} live feed`} style={{ margin: "20px 0" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button
+              type="button"
+              className={`btn btn-sm ${!activeSessionId ? "btn-primary" : "btn-secondary"}`}
+              onClick={() => setActiveSessionId(null)}
+              style={{
+                fontSize: "12px",
+                padding: "4px 12px",
+                borderRadius: "4px",
+                fontWeight: 600,
+                cursor: "pointer",
+                border: "1px solid var(--border)",
+                background: !activeSessionId ? "var(--primary)" : "var(--surface)",
+                color: !activeSessionId ? "#ffffff" : "var(--text-secondary)",
+              }}
+            >
+              📹 Live RTSP Stream
+            </button>
+            {activeSession && (
+              <button
+                type="button"
+                className="btn btn-sm btn-primary"
+                style={{
+                  fontSize: "12px",
+                  padding: "4px 12px",
+                  borderRadius: "4px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  border: "1px solid var(--accent, #6366f1)",
+                  background: "var(--accent, #6366f1)",
+                  color: "#ffffff",
+                }}
+              >
+                🎬 Session: {activeSession.original_filename}
+              </button>
+            )}
+          </div>
+          <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+            Resolution: 1920×1080 • Overlay: Active Effective Analytics
+          </span>
+        </div>
+
         <LiveFeed
           cameraId={camera.id}
           cameraName={camera.name}
           isOnline={status === "online"}
           useCases={camera.use_cases}
+          sessionId={activeSessionId || undefined}
+          sessionFilename={activeSession?.original_filename}
         />
+      </section>
+
+      {/* Video Upload & Dynamic Analytics Sessions Panel (Phase B & C) */}
+      <section
+        style={{
+          background: "var(--surface)",
+          border: "1px solid var(--border)",
+          borderRadius: "8px",
+          padding: "20px",
+          marginBottom: "24px",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px" }}>
+          <div>
+            <h2 style={{ fontSize: "16px", fontWeight: 600, margin: "0 0 4px 0" }}>
+              Upload Test Video & Run Camera Analytics
+            </h2>
+            <p style={{ fontSize: "12px", color: "var(--text-muted)", margin: 0 }}>
+              Upload custom video files (.mp4, .mov, .avi, .mkv) against this camera to run effective analytics and zone compliance rules with isolated frame routing.
+            </p>
+          </div>
+        </div>
+
+        {uploadError && (
+          <div
+            style={{
+              padding: "10px 14px",
+              background: "var(--danger-bg, rgba(239, 68, 68, 0.15))",
+              color: "var(--danger, #ef4444)",
+              border: "1px solid rgba(239, 68, 68, 0.3)",
+              borderRadius: "6px",
+              fontSize: "12px",
+              marginBottom: "14px",
+            }}
+          >
+            <strong>Upload Error:</strong> {uploadError}
+          </div>
+        )}
+
+        {actionError && (
+          <div
+            style={{
+              padding: "10px 14px",
+              background: "var(--danger-bg, rgba(239, 68, 68, 0.15))",
+              color: "var(--danger, #ef4444)",
+              border: "1px solid rgba(239, 68, 68, 0.3)",
+              borderRadius: "6px",
+              fontSize: "12px",
+              marginBottom: "14px",
+            }}
+          >
+            <strong>Action Error:</strong> {actionError}
+          </div>
+        )}
+
+        {/* Upload Controls Row */}
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "12px",
+            alignItems: "center",
+            padding: "16px",
+            background: "var(--surface-raised, rgba(255, 255, 255, 0.03))",
+            border: "1px dashed var(--border)",
+            borderRadius: "6px",
+            marginBottom: "20px",
+          }}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".mp4,.mov,.avi,.mkv"
+            onChange={handleFileChange}
+            disabled={isSubmitting}
+            style={{ fontSize: "13px", color: "var(--text-secondary)" }}
+          />
+
+          <button
+            type="button"
+            onClick={handleUpload}
+            disabled={!selectedFile || isSubmitting}
+            style={{
+              padding: "7px 16px",
+              fontSize: "13px",
+              fontWeight: 600,
+              borderRadius: "4px",
+              border: "none",
+              background: selectedFile && !isSubmitting ? "var(--primary, #3b82f6)" : "var(--border)",
+              color: "#ffffff",
+              cursor: selectedFile && !isSubmitting ? "pointer" : "not-allowed",
+            }}
+          >
+            {isSubmitting && uploadProgress !== null ? `Uploading (${uploadProgress}%)...` : "Upload Video"}
+          </button>
+
+          {/* Quick Add Server Test Videos */}
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "8px" }}>
+            <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>Quick Test Files:</span>
+            <select
+              defaultValue=""
+              onChange={(e) => {
+                if (e.target.value) {
+                  handleQuickAddTestVideo(e.target.value);
+                  e.target.value = "";
+                }
+              }}
+              disabled={isSubmitting}
+              style={{
+                fontSize: "12px",
+                padding: "5px 8px",
+                background: "var(--surface)",
+                color: "var(--text-primary)",
+                border: "1px solid var(--border)",
+                borderRadius: "4px",
+              }}
+            >
+              <option value="" disabled>Select pre-existing test video...</option>
+              {AVAILABLE_TEST_VIDEOS.map((v) => (
+                <option key={v.name} value={v.name}>{v.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {uploadProgress !== null && (
+          <div style={{ marginBottom: "16px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "var(--text-muted)", marginBottom: "4px" }}>
+              <span>Upload Progress</span>
+              <span>{uploadProgress}%</span>
+            </div>
+            <div style={{ height: "6px", background: "var(--border)", borderRadius: "3px", overflow: "hidden" }}>
+              <div style={{ width: `${uploadProgress}%`, height: "100%", background: "var(--primary)", transition: "width 0.2s" }} />
+            </div>
+          </div>
+        )}
+
+        {/* Video Sessions List */}
+        <div>
+          <h3 style={{ fontSize: "13px", fontWeight: 650, color: "var(--text-secondary)", margin: "0 0 10px 0", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+            Video Sessions ({sessions.length})
+          </h3>
+
+          {sessions.length === 0 ? (
+            <div style={{ padding: "20px", textAlign: "center", color: "var(--text-muted)", fontSize: "13px", background: "var(--surface-raised)", borderRadius: "6px" }}>
+              No uploaded video sessions found for this camera. Upload a video above to test analytics playback.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              {sessions.map((s: VideoSession) => {
+                const isSelected = activeSessionId === s.session_id;
+                const isProcessing = s.status === "processing";
+                const isDone = s.status === "completed";
+                const isStopped = s.status === "stopped";
+                const isFailed = s.status === "failed";
+
+                const statusColor = isProcessing
+                  ? "var(--primary, #3b82f6)"
+                  : isDone
+                    ? "var(--success, #10b981)"
+                    : isStopped
+                      ? "var(--text-muted, #94a3b8)"
+                      : isFailed
+                        ? "var(--danger, #ef4444)"
+                        : "var(--warning, #f59e0b)";
+
+                const fileSizeMb = (s.file_size_bytes / (1024 * 1024)).toFixed(1);
+
+                return (
+                  <div
+                    key={s.session_id}
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      padding: "14px 16px",
+                      background: isSelected ? "var(--surface-raised, rgba(255, 255, 255, 0.05))" : "var(--surface)",
+                      border: isSelected ? "1px solid var(--primary, #6366f1)" : "1px solid var(--border)",
+                      borderRadius: "6px",
+                      gap: "12px",
+                    }}
+                  >
+                    <div style={{ minWidth: "220px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                        <span style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-primary)" }}>
+                          {s.original_filename}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: "10px",
+                            fontWeight: 700,
+                            padding: "2px 6px",
+                            borderRadius: "4px",
+                            background: `rgba(0,0,0,0.15)`,
+                            color: statusColor,
+                            border: `1px solid ${statusColor}`,
+                            textTransform: "uppercase",
+                          }}
+                        >
+                          {s.status}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "4px" }}>
+                        Size: {fileSizeMb} MB • Target: {s.fps} FPS • Frames: {s.processed_frames} / {s.total_frames || "—"} • ID: {s.session_id.slice(0, 8)}
+                      </div>
+                      {s.error_message && (
+                        <div style={{ fontSize: "11px", color: "var(--danger)", marginTop: "2px" }}>
+                          Error: {s.error_message}
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      {/* View In Feed Toggle */}
+                      <button
+                        type="button"
+                        onClick={() => setActiveSessionId(isSelected ? null : s.session_id)}
+                        style={{
+                          padding: "6px 12px",
+                          fontSize: "12px",
+                          fontWeight: 600,
+                          borderRadius: "4px",
+                          border: "1px solid var(--border)",
+                          background: isSelected ? "var(--accent, #6366f1)" : "var(--surface)",
+                          color: isSelected ? "#ffffff" : "var(--text-primary)",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {isSelected ? "✓ Previewing" : "👁 Preview Feed"}
+                      </button>
+
+                      {/* Start / Re-run Analytics Button */}
+                      <button
+                        type="button"
+                        onClick={() => handleStartSession(s.session_id)}
+                        disabled={isProcessing || isSubmitting}
+                        style={{
+                          padding: "6px 12px",
+                          fontSize: "12px",
+                          fontWeight: 600,
+                          borderRadius: "4px",
+                          border: "none",
+                          background: isProcessing ? "var(--border)" : "var(--success, #10b981)",
+                          color: "#ffffff",
+                          cursor: isProcessing || isSubmitting ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        {isProcessing ? "Processing..." : isDone ? "↻ Re-Run Analytics" : "▶ Start Analytics"}
+                      </button>
+
+                      {/* Stop Button */}
+                      {isProcessing && (
+                        <button
+                          type="button"
+                          onClick={() => handleStopSession(s.session_id)}
+                          disabled={isSubmitting}
+                          style={{
+                            padding: "6px 12px",
+                            fontSize: "12px",
+                            fontWeight: 600,
+                            borderRadius: "4px",
+                            border: "none",
+                            background: "var(--danger, #ef4444)",
+                            color: "#ffffff",
+                            cursor: isSubmitting ? "not-allowed" : "pointer",
+                          }}
+                        >
+                          ⏹ Stop
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </section>
 
       {/* Camera & Effective Analytics Details Panel */}

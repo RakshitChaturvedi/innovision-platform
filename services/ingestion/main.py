@@ -40,6 +40,9 @@ from services.ingestion.src.health import register_workers, router as health_rou
 from services.ingestion.src.offline_monitor import OfflineMonitor
 from services.ingestion.src.publisher import FramePublisher
 from services.ingestion.src.streaming import router as streaming_router
+from services.ingestion.src.video_session_manager import VideoSessionManager
+from services.ingestion.src.video_session_router import router as session_router
+import services.ingestion.src.video_session_router as session_router_module
 
 logging.basicConfig(
     level=logging.INFO,
@@ -54,6 +57,7 @@ registry_client: CameraRegistryClient | None = None
 camera_manager: CameraManager | None = None
 offline_monitor: OfflineMonitor | None = None
 offline_monitor_task = None
+video_session_mgr: VideoSessionManager | None = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -66,6 +70,7 @@ async def lifespan(app: FastAPI):
     global camera_manager
     global offline_monitor
     global offline_monitor_task
+    global video_session_mgr
 
     logger.info("ingestion_service_starting")
 
@@ -73,6 +78,7 @@ async def lifespan(app: FastAPI):
     redis_client = aioredis.from_url(
         f"redis://{settings.redis_host}:{settings.redis_port}",
         decode_responses=False,
+        max_connections=500,
     )
     await redis_client.ping() # verify redis is reachable
     logger.info("redis_connected")
@@ -106,6 +112,10 @@ async def lifespan(app: FastAPI):
     logger.info(
         "ingestion_service_started active_cameras=%d", camera_manager.active_camera_count
     )
+
+    # 6. Video Session Manager
+    video_session_mgr = VideoSessionManager(redis_client=redis_client)
+    session_router_module.session_manager = video_session_mgr
 
     try:
         yield
@@ -146,3 +156,4 @@ app.add_middleware(
 )
 app.include_router(health_router)
 app.include_router(streaming_router)
+app.include_router(session_router)

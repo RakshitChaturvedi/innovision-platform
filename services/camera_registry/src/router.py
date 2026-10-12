@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+import json
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Header
 from typing import Optional
 
 from services.camera_registry.src.schemas import (
@@ -12,9 +13,11 @@ from services.camera_registry.src.schemas import (
     ZoneAnalyticsPolicyItem, ZoneAnalyticsPolicyUpdate,
     ZoneAnalyticsPolicyBulkItem, ZoneAnalyticsPolicyBulkUpdate,
     ZonePPERuleItem, ZonePPERulesConfig,
-    CameraAnalyticsOverrideItem, CameraAnalyticsOverrideUpdate, CameraEffectiveAnalyticItem
+    CameraAnalyticsOverrideItem, CameraAnalyticsOverrideUpdate, CameraEffectiveAnalyticItem,
+    VideoSessionResponse, VideoSessionProcessResponse, VideoSessionCreateRequest
 )
 from services.camera_registry.src.service import CameraRegistryService
+from services.camera_registry.src.video_sessions import CameraRegistryVideoSessionCoordinator
 from services.auth.src.rbac import get_current_user, require_role, require_organization_access, Role, verify_resource_org
 from uuid import UUID
 
@@ -25,6 +28,9 @@ zones_router = APIRouter(prefix="/zones", tags=["zone-analytics"])
 
 def get_service() -> CameraRegistryService:
     raise RuntimeError("Camera Registry service dependency not configured")
+
+def get_video_coordinator(service: CameraRegistryService = Depends(get_service)) -> CameraRegistryVideoSessionCoordinator:
+    return CameraRegistryVideoSessionCoordinator(redis_client=service._redis)
 
 def _user_org_id(user: dict) -> str | None:
     if user.get("role") == Role.SUPERADMIN:
@@ -192,7 +198,8 @@ async def update_zone_ppe_rules(
     service: CameraRegistryService = Depends(get_service)
 ):
     try:
-        return await service.update_zone_ppe_rules(zone_id, body.rules, body.min_confidence, user_org_id=_user_org_id(user))
+        rules = body.ppe_rules if (body.ppe_rules and len(body.ppe_rules) > 0) else (body.rules or [])
+        return await service.update_zone_ppe_rules(zone_id, rules, body.min_confidence, user_org_id=_user_org_id(user))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except PermissionError as e:
@@ -496,3 +503,201 @@ async def get_camera_effective_analytics(
         return await service.get_camera_effective_analytics(camera_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+# --- Camera-Based Video Upload & Video Sessions (Phases B & C) ---
+@router.post(
+    "/{camera_id}/upload-video",
+    response_model=VideoSessionResponse,
+    status_code=201,
+    dependencies=[Depends(require_role(Role.OPERATOR))]
+)
+async def upload_camera_video(
+    camera_id: str,
+    request: Request,
+    filename: Optional[str] = Query(default=None),
+    x_filename: Optional[str] = Header(default=None),
+    user: dict = Depends(get_current_user),
+    service: CameraRegistryService = Depends(get_service),
+    coordinator: CameraRegistryVideoSessionCoordinator = Depends(get_video_coordinator),
+):
+    camera = await service.get_camera(camera_id)
+    if not camera:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    verify_resource_org(camera.get("organization_id"), user)
+
+    # Determine filename
+    chosen_filename = filename or x_filename
+
+    # Read body
+    content_type = request.headers.get("content-type", "")
+    body_bytes = await request.body()
+
+    # Check if request passed JSON reference to existing test video
+    if "application/json" in content_type and body_bytes:
+        try:
+            json_body = json.loads(body_bytes.decode("utf-8"))
+            test_fname = json_body.get("filename")
+            if test_fname:
+                try:
+                    return await coordinator.create_session_from_existing_test_video(
+                        camera_id=camera_id,
+                        organization_id=camera.get("organization_id"),
+                        video_filename=test_fname,
+                        target_fps=float(camera.get("fps", 10.0)),
+                    )
+                except FileNotFoundError as e:
+                    raise HTTPException(status_code=404, detail=str(e))
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+        except json.JSONDecodeError:
+            pass
+
+    if not body_bytes or len(body_bytes) == 0:
+        raise HTTPException(status_code=400, detail="Video upload payload cannot be empty")
+
+    if not chosen_filename:
+        chosen_filename = f"video_{uuid.uuid4().hex[:8]}.mp4"
+
+    try:
+        session = await coordinator.create_session_from_bytes(
+            camera_id=camera_id,
+            organization_id=camera.get("organization_id"),
+            filename=chosen_filename,
+            content=body_bytes,
+            target_fps=float(camera.get("fps", 10.0)),
+        )
+        return session
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to process video upload: {e}")
+
+@router.get("/{camera_id}/video-sessions", response_model=list[VideoSessionResponse])
+async def list_camera_video_sessions(
+    camera_id: str,
+    user: dict = Depends(get_current_user),
+    service: CameraRegistryService = Depends(get_service),
+    coordinator: CameraRegistryVideoSessionCoordinator = Depends(get_video_coordinator),
+):
+    camera = await service.get_camera(camera_id)
+    if not camera:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    verify_resource_org(camera.get("organization_id"), user)
+    return await coordinator.list_camera_sessions(camera_id)
+
+@router.get("/{camera_id}/video-sessions/{session_id}", response_model=VideoSessionResponse)
+async def get_camera_video_session(
+    camera_id: str,
+    session_id: str,
+    user: dict = Depends(get_current_user),
+    service: CameraRegistryService = Depends(get_service),
+    coordinator: CameraRegistryVideoSessionCoordinator = Depends(get_video_coordinator),
+):
+    camera = await service.get_camera(camera_id)
+    if not camera:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    verify_resource_org(camera.get("organization_id"), user)
+
+    session = await coordinator.get_session(session_id)
+    if not session or str(session.get("camera_id")) != str(camera_id):
+        raise HTTPException(status_code=404, detail=f"Video session '{session_id}' not found for camera '{camera_id}'")
+    return session
+
+@router.post(
+    "/{camera_id}/video-sessions/{session_id}/process",
+    response_model=VideoSessionProcessResponse,
+    dependencies=[Depends(require_role(Role.OPERATOR))]
+)
+async def process_camera_video_session(
+    camera_id: str,
+    session_id: str,
+    user: dict = Depends(get_current_user),
+    service: CameraRegistryService = Depends(get_service),
+    coordinator: CameraRegistryVideoSessionCoordinator = Depends(get_video_coordinator),
+):
+    camera = await service.get_camera(camera_id)
+    if not camera:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    verify_resource_org(camera.get("organization_id"), user)
+
+    session = await coordinator.get_session(session_id)
+    if not session or str(session.get("camera_id")) != str(camera_id):
+        raise HTTPException(status_code=404, detail="Video session not found")
+
+    # Source Isolation Guard: Never interleave with active live RTSP stream
+    if camera.get("status") == "online" and not camera.get("is_simulation", False):
+        # Check if live RTSP stream exists in Redis and has recent live frames
+        latest_frames = await service._redis.xrevrange(f"frames:{camera_id}", max="+", min="-", count=1)
+        if latest_frames:
+            try:
+                raw_payload = latest_frames[0][1].get(b"data") or latest_frames[0][1].get("data")
+                if raw_payload:
+                    f_data = json.loads(raw_payload.decode("utf-8") if isinstance(raw_payload, bytes) else raw_payload)
+                    # Only block if stream is live RTSP (not a finished/prior video upload session)
+                    # and the frame was published recently (within the last 15 seconds)
+                    if f_data.get("source_type") != "uploaded_video":
+                        ts_str = f_data.get("timestamp")
+                        if ts_str:
+                            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                            if (datetime.now(timezone.utc) - ts).total_seconds() < 15.0:
+                                raise HTTPException(
+                                    status_code=409,
+                                    detail="CAMERA_LIVE_BUSY: Cannot start video upload session while live RTSP ingestion is actively running on this camera. Stop live stream before starting uploaded video session."
+                                )
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.warning("live_stream_check_failed camera_id=%s error=%s", camera_id, e)
+
+    # Resolve effective analytics dynamically
+    eff_items = await service.get_camera_effective_analytics(camera_id)
+    active_analytics = [item["internal_code"] for item in eff_items if item.get("is_active")]
+
+    try:
+        updated_session = await coordinator.call_ingestion_start(
+            session_id=session_id,
+            effective_analytics=active_analytics,
+            fps=float(camera.get("fps", 10.0)),
+        )
+        return {
+            "session_id": session_id,
+            "camera_id": camera_id,
+            "status": updated_session.get("status", "processing"),
+            "message": f"Video session started successfully. Active analytics: {active_analytics or ['none']}",
+            "effective_analytics": active_analytics,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post(
+    "/{camera_id}/video-sessions/{session_id}/stop",
+    response_model=VideoSessionProcessResponse,
+    dependencies=[Depends(require_role(Role.OPERATOR))]
+)
+async def stop_camera_video_session(
+    camera_id: str,
+    session_id: str,
+    user: dict = Depends(get_current_user),
+    service: CameraRegistryService = Depends(get_service),
+    coordinator: CameraRegistryVideoSessionCoordinator = Depends(get_video_coordinator),
+):
+    camera = await service.get_camera(camera_id)
+    if not camera:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    verify_resource_org(camera.get("organization_id"), user)
+
+    session = await coordinator.get_session(session_id)
+    if not session or str(session.get("camera_id")) != str(camera_id):
+        raise HTTPException(status_code=404, detail="Video session not found")
+
+    try:
+        stopped_session = await coordinator.call_ingestion_stop(session_id)
+        return {
+            "session_id": session_id,
+            "camera_id": camera_id,
+            "status": stopped_session.get("status", "stopped"),
+            "message": "Video session playback stopped",
+            "effective_analytics": stopped_session.get("effective_analytics", []),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

@@ -73,6 +73,27 @@ PERSON_CHECK_TO_PPE_TYPE: dict[str, str] = {
     "eye":  "eye_prot",
 }
 
+PPE_TYPE_ALIASES: dict[str, set[str]] = {
+    "helmet": {"helmet", "hard-hat", "hardhat"},
+    "vest": {"vest", "safety-vest", "safety_vest", "medical-suit", "medical_suit", "safety-suit", "safety_suit"},
+    "gloves": {"gloves", "glove"},
+    "safety_shoes": {"safety_shoes", "shoes", "shoe", "boot", "boots", "safety-shoes"},
+    "eye_prot": {"eye_prot", "glasses", "goggles", "safety-glasses", "safety_glasses"},
+    "mask": {"mask", "face-mask", "face_mask", "face-guard", "face_guard", "face-shield", "face_shield"},
+}
+
+def is_ppe_required(ppe_type: str, required_ppe: frozenset[str] | None) -> bool:
+    """
+    Determine if a canonical PPE category is required.
+    None = fallback standard platform default (all standard PPE required).
+    frozenset() = explicitly 0 PPE required for this zone.
+    """
+    if required_ppe is None:
+        return True
+    aliases = PPE_TYPE_ALIASES.get(ppe_type, {ppe_type})
+    req_norm = {r.strip().lower().replace("_", "-") for r in required_ppe}
+    return any(a.replace("_", "-") in req_norm for a in aliases)
+
 VERTICAL_EXPECTED: dict[str, int] = {
     "head":  +1,   # helmet above head
     "hands":  0,   # gloves beside/overlap hands
@@ -249,139 +270,152 @@ def _evaluate_worker(
 ) -> None:
     state = _get_worker_state(worker_id, worker_states)
 
-    by_label: dict[str, list[tuple[int, Box]]] = defaultdict(list)
-    for idx, d in enumerate(worker_dets):
-        by_label[d["label"].lower()].append((idx, tuple(d["box"])))
+    by_label: dict[str, list[dict]] = defaultdict(list)
+    for d in worker_dets:
+        norm_label = d["label"].strip().lower().replace("_", "-")
+        by_label[norm_label].append(d)
 
     for d in worker_dets:
-        if d["label"].lower() in ALWAYS_COMPLIANT:
+        norm_lbl = d["label"].strip().lower().replace("_", "-")
+        if norm_lbl in ALWAYS_COMPLIANT:
             d["compliant"] = True
 
-    claimed_global: set[tuple[str, int]] = set()
+    # 6 Canonical PPE evaluations covering model supported positive and negative classes
+    PPE_EVALUATIONS = [
+        {
+            "category": "helmet",
+            "part": "head",
+            "violation": "no-head-protection",
+            "pos_labels": {"helmet", "hard-hat", "hardhat"},
+            "neg_labels": {"no-helmet"},
+            "anatomical_part": "head",
+        },
+        {
+            "category": "vest",
+            "part": "vest",
+            "violation": "no-safety-vest",
+            "pos_labels": {"safety-vest", "safety_vest", "vest", "medical-suit", "medical_suit", "safety-suit", "safety_suit"},
+            "neg_labels": {"no-vest"},
+            "anatomical_part": None,
+        },
+        {
+            "category": "gloves",
+            "part": "hands",
+            "violation": "no-hands-protection",
+            "pos_labels": {"gloves", "glove"},
+            "neg_labels": {"no-gloves"},
+            "anatomical_part": "hands",
+        },
+        {
+            "category": "safety_shoes",
+            "part": "foot",
+            "violation": "no-foot-protection",
+            "pos_labels": {"shoes", "shoe", "boot", "boots", "safety-shoes"},
+            "neg_labels": {"no-shoe", "no-shoes"},
+            "anatomical_part": "foot",
+        },
+        {
+            "category": "eye_prot",
+            "part": "eye",
+            "violation": "no-eye-protection",
+            "pos_labels": {"glasses", "goggles", "safety-glasses", "safety_glasses", "face-guard", "face_guard"},
+            "neg_labels": {"no-goggles"},
+            "anatomical_part": None,
+        },
+        {
+            "category": "mask",
+            "part": "face",
+            "violation": "no-face-protection",
+            "pos_labels": {"face-guard", "face_guard", "face-shield", "face_shield", "face-mask", "face_mask", "mask"},
+            "neg_labels": {"no-mask"},
+            "anatomical_part": "face",
+        },
+    ]
 
-    for part, protectors in REQUIRED_PPE.items():
-        if required_ppe is not None and PART_TO_PPE_TYPE[part] not in required_ppe:
+    for item in PPE_EVALUATIONS:
+        cat = item["category"]
+        part = item["part"]
+        vio_name = item["violation"]
+        pos_labels = item["pos_labels"]
+        neg_labels = item["neg_labels"]
+        anat_part = item["anatomical_part"]
+
+        # Check zone requirement
+        if not is_ppe_required(cat, required_ppe):
+            # Not required: mark state as compliant, and any negative detections as compliant
             state.update(part, covered=True, now=now)
+            for nl in neg_labels:
+                for d in by_label.get(nl, []):
+                    d["compliant"] = True
             continue
 
-        part_entries = by_label.get(part, [])
-        if not part_entries:
-            state.update(part, covered=True, now=now)
-            continue
+        pos_dets = [d for nl in pos_labels for d in by_label.get(nl, [])]
+        neg_dets = [d for nl in neg_labels for d in by_label.get(nl, [])]
 
-        valid_part_entries = [
-            (idx, box) for idx, box in part_entries
-            if _area(box) >= MIN_BODY_PART_AREA
-        ]
-        if not valid_part_entries:
-            state.update(part, covered=True, now=now)
-            continue
+        has_pos = len(pos_dets) > 0
+        has_neg = len(neg_dets) > 0
 
-        ppe_candidates: list[tuple[str, int, Box]] = []
-        for ppe_lbl in protectors:
-            for local_idx, ppe_box in by_label.get(ppe_lbl, []):
-                if (ppe_lbl, local_idx) in claimed_global:
-                    continue
-                if not _is_in_frame(ppe_box):
-                    continue
-                ppe_candidates.append((ppe_lbl, local_idx, ppe_box))
+        covered = True
 
-        assignment_triples: list[tuple[float, int, tuple[str, int, Box]]] = []
-        for part_local_i, (_, part_box) in enumerate(valid_part_entries):
-            for cand in ppe_candidates:
-                _, _, ppe_box = cand
-                score = _association_score(part_box, ppe_box, part_label=part)
-                assignment_triples.append((score, part_local_i, cand))
-
-        assignment_triples.sort(reverse=True)
-
-        used_parts:  set[int]              = set()
-        used_ppe:    set[tuple[str, int]]  = set()
-        coverage:    dict[int, bool]       = {}
-
-        for score, part_local_i, cand in assignment_triples:
-            ppe_lbl, local_idx, ppe_box = cand
-            ppe_key = (ppe_lbl, local_idx)
-            if part_local_i in used_parts or ppe_key in used_ppe:
-                continue
-            threshold = PPE_OVERLAP.get(ppe_lbl, OVERLAP_THRESHOLD)
-            iou = _iou(valid_part_entries[part_local_i][1], ppe_box)
-            covered = iou >= threshold
-            coverage[part_local_i] = covered
-            used_parts.add(part_local_i)
-            used_ppe.add(ppe_key)
-            if covered:
-                claimed_global.add(ppe_key)
-
-        for pi in range(len(valid_part_entries)):
-            if pi not in coverage:
-                coverage[pi] = False
-
-        if part == "hands" and len(valid_part_entries) == 1:
-            pass
-
-        all_covered = all(coverage.values()) if coverage else False
-
-        for pi, (det_idx, _) in enumerate(valid_part_entries):
-            worker_dets[det_idx]["compliant"] = coverage.get(pi, False)
+        if has_pos and has_neg:
+            # Positive/negative conflict reconciliation on the same tracked worker
+            best_pos_conf = max(d["conf"] for d in pos_dets)
+            best_neg_conf = max(d["conf"] for d in neg_dets)
+            if best_pos_conf >= best_neg_conf:
+                covered = True
+                for d in pos_dets:
+                    d["compliant"] = True
+                for d in neg_dets:
+                    d["compliant"] = True
+            else:
+                covered = False
+                for d in neg_dets:
+                    d["compliant"] = False
+        elif has_neg:
+            # Only negative detected: directly contributes to missing PPE
+            covered = False
+            for d in neg_dets:
+                d["compliant"] = False
+        elif has_pos:
+            # Only positive detected
+            covered = True
+            for d in pos_dets:
+                d["compliant"] = True
+        else:
+            # Neither positive nor negative detected
+            if anat_part is not None:
+                # Check anatomical body part
+                anat_entries = [
+                    d for d in by_label.get(anat_part, [])
+                    if _area(tuple(d["box"])) >= MIN_BODY_PART_AREA
+                ]
+                if anat_entries:
+                    # Anatomical part is visible, but no PPE detected covering it
+                    covered = False
+                    for d in anat_entries:
+                        d["compliant"] = False
+                else:
+                    # Anatomical part is not detected.
+                    # Per requirement 10: do not use absence of anatomical part as sole evidence of missing PPE.
+                    covered = True
+            else:
+                # Vest or eye: check if person is detected
+                if "person" in by_label or "worker" in by_label:
+                    covered = False
+                else:
+                    covered = True
 
         was_active = state._timeline(part).violation_active
-        raise_violation = state.update(part, covered=all_covered, now=now)
+        raise_violation = state.update(part, covered=covered, now=now)
         if raise_violation:
-            frame_violations.append(f"no-{part}-protection")
+            frame_violations.append(vio_name)
             if not was_active:
                 worker_violations.append({
                     "worker_id": worker_id,
-                    "ppe_type": PART_TO_PPE_TYPE[part],
-                    "violation": f"no-{part}-protection",
+                    "ppe_type": cat,
+                    "violation": vio_name,
                     "confidence": state._timeline(part).last_fraction_missing,
                 })
-
-    if "person" in by_label:
-        vest_required = required_ppe is None or PERSON_CHECK_TO_PPE_TYPE["vest"] in required_ppe
-        eye_required  = required_ppe is None or PERSON_CHECK_TO_PPE_TYPE["eye"]  in required_ppe
-
-        has_vest = any(
-            lbl in by_label
-            for lbl in ("safety-vest", "safety_vest", "vest",
-                        "medical-suit", "medical_suit",
-                        "safety-suit", "safety_suit")
-        )
-        has_eye = any(
-            lbl in by_label
-            for lbl in ("glasses", "goggles", "safety-glasses", "safety_glasses",
-                        "face-guard", "face_guard")
-        )
-
-        if not vest_required:
-            state.update("vest", covered=True, now=now)
-        elif not has_vest:
-            was_active = state._timeline("vest").violation_active
-            if state.update("vest", covered=False, now=now):
-                frame_violations.append("no-safety-vest")
-                if not was_active:
-                    worker_violations.append({
-                        "worker_id": worker_id, "ppe_type": "vest",
-                        "violation": "no-safety-vest",
-                        "confidence": state._timeline("vest").last_fraction_missing,
-                    })
-        else:
-            state.update("vest", covered=True, now=now)
-
-        if not eye_required:
-            state.update("eye", covered=True, now=now)
-        elif not has_eye:
-            was_active = state._timeline("eye").violation_active
-            if state.update("eye", covered=False, now=now):
-                frame_violations.append("no-eye-protection")
-                if not was_active:
-                    worker_violations.append({
-                        "worker_id": worker_id, "ppe_type": "eye_prot",
-                        "violation": "no-eye-protection",
-                        "confidence": state._timeline("eye").last_fraction_missing,
-                    })
-        else:
-            state.update("eye", covered=True, now=now)
 
     for d in worker_dets:
         if "compliant" not in d:
@@ -392,12 +426,15 @@ def evaluate_compliance(
     worker_states: WorkerStates,
     now: float,
     required_ppe: frozenset[str] | None = None,
+    min_confidence: float | None = None,
 ) -> tuple[str, list[str], list[dict]]:
+    eff_conf = min_confidence if min_confidence is not None else CONF_THRESHOLD
+
     for d in detections:
-        if d["conf"] < CONF_THRESHOLD:
+        if d["conf"] < eff_conf:
             d["compliant"] = True
 
-    active = [d for d in detections if d["conf"] >= CONF_THRESHOLD]
+    active = [d for d in detections if d["conf"] >= eff_conf]
     worker_groups = _group_by_worker(active)
 
     frame_violations: list[str] = []

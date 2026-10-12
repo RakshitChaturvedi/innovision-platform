@@ -168,8 +168,9 @@ class ZonePPERuleItem(BaseModel):
 
 class ZonePPERulesConfig(BaseModel):
     zone_id: Optional[UUID] = None
-    ppe_rules: list[ZonePPERuleItem]
-    min_confidence: float = 0.50
+    ppe_rules: list[ZonePPERuleItem] = Field(default_factory=list)
+    rules: Optional[list[ZonePPERuleItem]] = None
+    min_confidence: float = Field(default=0.50, ge=0.0, le=1.0)
 
 # --- Camera Analytics Overrides & Effective Analytics (Phase 4) ---
 class CameraAnalyticsOverrideItem(BaseModel):
@@ -198,6 +199,29 @@ class CameraEffectiveAnalyticItem(BaseModel):
     override_enabled: Optional[bool] = None
     subscription_active: bool = False
 
+# --- Video Upload & Processing Sessions ---
+class VideoSessionResponse(BaseModel):
+    session_id: UUID
+    camera_id: UUID
+    organization_id: Optional[UUID] = None
+    original_filename: str
+    storage_path: str
+    file_size_bytes: int
+    status: str
+    fps: float = 10.0
+    total_frames: int = 0
+    processed_frames: int = 0
+    error_message: Optional[str] = None
+    effective_analytics: list[str] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
 
+class VideoSessionProcessResponse(BaseModel):
+    session_id: UUID
+    camera_id: UUID
+    status: str
+    message: str
+    effective_analytics: list[str] = Field(default_factory=list)
 
-
+class VideoSessionCreateRequest(BaseModel):
+    filename: Optional[str] = None

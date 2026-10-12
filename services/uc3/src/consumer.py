@@ -56,20 +56,43 @@ CLASS_COLORS: Dict[str, str] = {
     "hand": "#60A5FA",
     "foot": "#F87171",
     "feet": "#F87171",
-    "no-helmet": "#FF3333",
-    "no-vest": "#FF3333",
-    "no-gloves": "#FF3333",
-    "no-shoe": "#FF3333",
-    "no-shoes": "#FF3333",
-    "no-goggles": "#FF3333",
-    "no-mask": "#FF3333",
+    "no-helmet": "#94A3B8",
+    "no-vest": "#94A3B8",
+    "no-gloves": "#94A3B8",
+    "no-shoe": "#94A3B8",
+    "no-shoes": "#94A3B8",
+    "no-goggles": "#94A3B8",
+    "no-mask": "#94A3B8",
 }
 
 def get_class_color(label: str, is_compliant: bool = True) -> str:
     norm_lbl = label.strip().lower().replace("_", "-")
-    if not is_compliant or norm_lbl.startswith("no-"):
+    if not is_compliant:
         return "#FF3333"
+    if norm_lbl.startswith("no-"):
+        return "#94A3B8"
     return CLASS_COLORS.get(norm_lbl, "#94A3B8")
+
+def format_detections_for_overlay(raw_detections: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    formatted: List[Dict[str, Any]] = []
+    for d in raw_detections:
+        norm_b = d["box"]
+        lbl = d["label"]
+        comp = d.get("compliant", True)
+        formatted.append({
+            "track_id": d.get("_track_id"),
+            "label": lbl.replace("-", " ").title(),
+            "bbox": {
+                "x1": norm_b[0],
+                "y1": norm_b[1],
+                "x2": norm_b[2],
+                "y2": norm_b[3],
+            },
+            "color": get_class_color(lbl, comp),
+            "compliant": comp,
+            "confidence": round(d["conf"], 2),
+        })
+    return formatted
 
 class UC3ConsumerManager:
     def __init__(
@@ -111,9 +134,17 @@ class UC3ConsumerManager:
         )
 
     async def discover_cameras(self) -> List[str]:
+        headers: Dict[str, str] = {}
+        try:
+            from services.auth.src.jwt import create_access_token
+            from services.auth.src.rbac import Role
+            token = create_access_token(user_id="uc3_service", role=Role.SUPERADMIN, camera_ids=[])
+            headers["Authorization"] = f"Bearer {token}"
+        except Exception as e:
+            logger.debug("uc3_camera_discovery_token_generation_failed: %s", e)
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
-                res = await client.get(f"{self._registry_url}/cameras/by-uc/uc3")
+                res = await client.get(f"{self._registry_url}/cameras/by-uc/uc3", headers=headers)
                 if res.status_code == 200:
                     data = res.json()
                     return data.get("camera_ids", [])
@@ -187,43 +218,44 @@ class UC3ConsumerManager:
         consumer_name = f"uc3_worker_{os.uname().nodename if hasattr(os, 'uname') else 'worker'}"
 
         try:
-            messages = await self._redis.xreadgroup(
-                groupname=self._group_name,
-                consumername=consumer_name,
-                streams={stream_key: ">"},
-                count=1,
-                block=500,
-            )
+            while True:
+                messages = await self._redis.xreadgroup(
+                    groupname=self._group_name,
+                    consumername=consumer_name,
+                    streams={stream_key: ">"},
+                    count=5,
+                    block=10,
+                )
 
-            if not messages:
-                return
+                if not messages:
+                    return
 
-            for _, entries in messages:
-                for message_id, fields in entries:
-                    if isinstance(message_id, bytes):
-                        message_id = message_id.decode()
+                for _, entries in messages:
+                    for message_id, fields in entries:
+                        if isinstance(message_id, bytes):
+                            message_id = message_id.decode()
 
-                    payload = fields.get(b"data") or fields.get("data")
-                    if payload is None:
+                        payload = fields.get(b"data") or fields.get("data")
+                        if payload is None:
+                            await self._redis.xack(stream_key, self._group_name, message_id)
+                            continue
+
+                        if isinstance(payload, bytes):
+                            payload = payload.decode()
+
+                        try:
+                            event_dict = json.loads(payload)
+                            frame_event = FrameEvent.model_validate(event_dict)
+                        except Exception as e:
+                            logger.error("invalid_frame_event stream=%s error=%s", stream_key, e)
+                            await self._redis.xack(stream_key, self._group_name, message_id)
+                            continue
+
+                        # Process frame event
+                        await self._process_frame_event(frame_event)
+
+                        # Acknowledge after processing complete
                         await self._redis.xack(stream_key, self._group_name, message_id)
-                        continue
-
-                    if isinstance(payload, bytes):
-                        payload = payload.decode()
-
-                    try:
-                        event_dict = json.loads(payload)
-                        frame_event = FrameEvent.model_validate(event_dict)
-                    except Exception as e:
-                        logger.error("invalid_frame_event stream=%s error=%s", stream_key, e)
-                        await self._redis.xack(stream_key, self._group_name, message_id)
-                        continue
-
-                    # Process frame event
-                    await self._process_frame_event(frame_event)
-
-                    # Acknowledge after processing complete
-                    await self._redis.xack(stream_key, self._group_name, message_id)
 
         except Exception as e:
             logger.error("consume_stream_failed stream=%s error=%s", stream_key, e)
@@ -317,46 +349,32 @@ class UC3ConsumerManager:
             raw_detections = drop_in_regions(raw_detections, ex_regions, w, h)
 
         # Stage 4: Zone Determination & Compliance Evaluation
-        zone_id, required_ppe, zone_name = await self._publisher.get_camera_zone_and_rules(camera_id)
+        zone_id, required_ppe, zone_name, min_confidence = await self._publisher.get_camera_zone_and_rules(camera_id)
 
         severity, unique_vio, worker_violations = evaluate_compliance(
             detections=raw_detections,
             worker_states=w_state,
             now=now_ts,
             required_ppe=required_ppe,
+            min_confidence=min_confidence,
         )
 
         # Format detection state for API overlay
-        formatted_detections: List[Dict[str, Any]] = []
-        for d in raw_detections:
-            norm_b = d["box"]
-            lbl = d["label"]
-            norm_lbl = lbl.strip().lower().replace("_", "-")
-            comp = False if norm_lbl.startswith("no-") else d.get("compliant", True)
-            formatted_detections.append({
-                "track_id": d.get("_track_id"),
-                "label": lbl.replace("-", " ").title(),
-                "bbox": {
-                    "x1": norm_b[0],
-                    "y1": norm_b[1],
-                    "x2": norm_b[2],
-                    "y2": norm_b[3],
-                },
-                "color": get_class_color(lbl, comp),
-                "compliant": comp,
-                "confidence": round(d["conf"], 2),
-            })
+        formatted_detections = format_detections_for_overlay(raw_detections)
 
         self.latest_detections[camera_id] = {
             "timestamp": dt_now.isoformat(),
             "camera_id": camera_id,
+            "source_type": getattr(frame_event, "source_type", "live_rtsp"),
+            "session_id": str(frame_event.session_id) if getattr(frame_event, "session_id", None) else None,
             "detections": formatted_detections,
             "severity": severity,
             "violations": unique_vio,
             "zone": {
                 "id": str(zone_id) if zone_id else None,
                 "name": zone_name,
-                "required_ppe": list(required_ppe) if required_ppe else ["helmet", "vest", "shoes", "gloves", "mask"],
+                "required_ppe": list(required_ppe) if required_ppe is not None else ["helmet", "vest", "shoes", "gloves", "mask"],
+                "min_confidence": min_confidence,
             },
         }
         self.last_frame_processed_at = now_ts

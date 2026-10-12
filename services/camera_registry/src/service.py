@@ -701,6 +701,35 @@ class CameraRegistryService:
             if not z_row.fetchone():
                 raise ValueError(f"Zone {zone_id} not found")
 
+            # Resolve stored min_confidence from uc3_zones or zones
+            eff_min_conf = min_confidence
+            async def _fetch_conf():
+                nonlocal eff_min_conf
+                uz_conf = await session.execute(
+                    text("SELECT min_confidence FROM uc3_zones WHERE id = :id"),
+                    {"id": zone_id}
+                )
+                uz_r = uz_conf.fetchone()
+                if uz_r and uz_r[0] is not None:
+                    eff_min_conf = float(uz_r[0])
+                else:
+                    z_conf = await session.execute(
+                        text("SELECT min_confidence FROM zones WHERE id = :id"),
+                        {"id": zone_id}
+                    )
+                    zr = z_conf.fetchone()
+                    if zr and zr[0] is not None:
+                        eff_min_conf = float(zr[0])
+
+            try:
+                if hasattr(session, "begin_nested"):
+                    async with session.begin_nested():
+                        await _fetch_conf()
+                else:
+                    await _fetch_conf()
+            except Exception:
+                pass
+
             rules_rows = await session.execute(text("""
                 SELECT id, zone_id, ppe_type, required, severity, grace_seconds
                 FROM uc3_zone_ppe_rules
@@ -721,7 +750,7 @@ class CameraRegistryService:
                 return {
                     "zone_id": zone_id,
                     "ppe_rules": rule_items,
-                    "min_confidence": min_confidence
+                    "min_confidence": eff_min_conf
                 }
 
             z_ppe = await session.execute(text("SELECT required_ppe FROM zones WHERE id = :id"), {"id": zone_id})
@@ -741,7 +770,7 @@ class CameraRegistryService:
             return {
                 "zone_id": zone_id,
                 "ppe_rules": rule_items,
-                "min_confidence": min_confidence
+                "min_confidence": eff_min_conf
             }
 
     async def update_zone_ppe_rules(
@@ -752,7 +781,11 @@ class CameraRegistryService:
         current_user: dict | None = None,
         user_org_id: str | None = None
     ) -> dict:
+        if min_confidence < 0.0 or min_confidence > 1.0:
+            raise ValueError(f"min_confidence must be between 0.0 and 1.0, got {min_confidence}")
+
         eff_user_org_id = user_org_id or (current_user.get("org_id") if isinstance(current_user, dict) else None)
+        cam_ids: list[str] = []
 
         async with self._session_factory() as session:
             async with session.begin():
@@ -774,17 +807,40 @@ class CameraRegistryService:
                 if not uc3_z.fetchone():
                     z_info = await session.execute(text("SELECT name, description, risk_level FROM zones WHERE id = :id"), {"id": zone_id})
                     zi = z_info.fetchone()
-                    await session.execute(text("""
-                        INSERT INTO uc3_zones (id, organization_id, name, description, risk_level, is_active)
-                        VALUES (:id, :org_id, :name, :description, :risk_level, true)
-                        ON CONFLICT (id) DO NOTHING;
-                    """), {
-                        "id": zone_id,
-                        "org_id": zone_org_id,
-                        "name": zi.name if zi else "Zone",
-                        "description": zi.description if zi else None,
-                        "risk_level": zi.risk_level if zi else "medium"
-                    })
+                    try:
+                        async with session.begin_nested():
+                            await session.execute(text("""
+                                INSERT INTO uc3_zones (id, organization_id, name, description, risk_level, is_active, min_confidence)
+                                VALUES (:id, :org_id, :name, :description, :risk_level, true, :min_conf)
+                                ON CONFLICT (id) DO UPDATE SET min_confidence = EXCLUDED.min_confidence;
+                            """), {
+                                "id": zone_id,
+                                "org_id": zone_org_id,
+                                "name": zi.name if zi else "Zone",
+                                "description": zi.description if zi else None,
+                                "risk_level": zi.risk_level if zi else "medium",
+                                "min_conf": min_confidence
+                            })
+                    except Exception:
+                        await session.execute(text("""
+                            INSERT INTO uc3_zones (id, organization_id, name, description, risk_level, is_active)
+                            VALUES (:id, :org_id, :name, :description, :risk_level, true)
+                            ON CONFLICT (id) DO NOTHING;
+                        """), {
+                            "id": zone_id,
+                            "org_id": zone_org_id,
+                            "name": zi.name if zi else "Zone",
+                            "description": zi.description if zi else None,
+                            "risk_level": zi.risk_level if zi else "medium"
+                        })
+                else:
+                    try:
+                        async with session.begin_nested():
+                            await session.execute(text("""
+                                UPDATE uc3_zones SET min_confidence = :min_conf WHERE id = :id
+                            """), {"id": zone_id, "min_conf": min_confidence})
+                    except Exception:
+                        pass
 
                 await session.execute(text("DELETE FROM uc3_zone_ppe_rules WHERE zone_id = :id"), {"id": zone_id})
 
@@ -837,10 +893,26 @@ class CameraRegistryService:
                     if item in PPE_ENUM_MAP
                 })
 
-                # Sync to zones table required_ppe column
-                await session.execute(text("""
-                    UPDATE zones SET required_ppe = :req_ppe, updated_at = now() WHERE id = :id
-                """), {"id": zone_id, "req_ppe": pg_enum_ppe_list})
+                # Sync to zones table required_ppe and min_confidence columns
+                try:
+                    async with session.begin_nested():
+                        await session.execute(text("""
+                            UPDATE zones SET min_confidence = :min_conf, required_ppe = :req_ppe, updated_at = now() WHERE id = :id
+                        """), {"id": zone_id, "min_conf": min_confidence, "req_ppe": pg_enum_ppe_list})
+                except Exception:
+                    await session.execute(text("""
+                        UPDATE zones SET required_ppe = :req_ppe, updated_at = now() WHERE id = :id
+                    """), {"id": zone_id, "req_ppe": pg_enum_ppe_list})
+
+                # Find all cameras assigned to this zone for effective analytics refresh
+                cams = await session.execute(text("SELECT id FROM cameras WHERE zone_id = :z_id"), {"z_id": zone_id})
+                cam_ids = [str(r.id) for r in cams.fetchall()]
+
+        if cam_ids:
+            try:
+                await self.recalculate_effective_analytics(cam_ids)
+            except Exception as e:
+                logger.warning("recalculate_effective_analytics_warning zone_id=%s error=%s", zone_id, e)
 
         return await self.get_zone_ppe_rules(zone_id, min_confidence=min_confidence)
 
@@ -931,11 +1003,27 @@ class CameraRegistryService:
                                 SELECT ppe_type FROM uc3_zone_ppe_rules WHERE zone_id = :z_id AND required = true
                             """), {"z_id": zone_id})
                             req_ppe = [r.ppe_type for r in ppe_rows.fetchall()]
-                            eff_config = {"required_ppe": req_ppe}
+
+                            z_conf = 0.50
+                            try:
+                                async with session.begin_nested():
+                                    zc_row = await session.execute(text("SELECT min_confidence FROM uc3_zones WHERE id = :z_id"), {"z_id": zone_id})
+                                    zc = zc_row.fetchone()
+                                    if zc and zc[0] is not None:
+                                        z_conf = float(zc[0])
+                                    else:
+                                        zrc_row = await session.execute(text("SELECT min_confidence FROM zones WHERE id = :z_id"), {"z_id": zone_id})
+                                        zrc = zrc_row.fetchone()
+                                        if zrc and zrc[0] is not None:
+                                            z_conf = float(zrc[0])
+                            except Exception:
+                                pass
+
+                            eff_config = {"required_ppe": req_ppe, "min_confidence": z_conf}
 
                         await session.execute(text("""
                             INSERT INTO camera_effective_analytics (camera_id, analytic_id, is_active, effective_config, updated_at)
-                            VALUES (:camera_id, :analytic_id, :is_active, :effective_config, now())
+                            VALUES (:camera_id, :analytic_id, :is_active, CAST(:effective_config AS jsonb), now())
                             ON CONFLICT (camera_id, analytic_id)
                             DO UPDATE SET is_active = EXCLUDED.is_active, effective_config = EXCLUDED.effective_config, updated_at = now()
                         """), {

@@ -16,6 +16,8 @@ class FrameEvent(BaseModel):
     frame_provider: FrameProvider
     frame_reference: str
     frame_shape: tuple[int, int]
+    source_type: str = Field(default="live_rtsp")
+    session_id: UUID | None = Field(default=None)
 
 class FrameEventSchema:
     # validation helpers, ucs call these to verify if the events are constructed correctly.

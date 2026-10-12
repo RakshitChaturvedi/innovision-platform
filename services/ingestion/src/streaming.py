@@ -41,8 +41,9 @@ async def _latest_stream_id(
 async def _frame_stream(
     redis_client: aioredis.Redis,
     camera_id: str,
+    session_id: str | None = None,
 ) -> AsyncGenerator[bytes, None]:
-    stream_key = f"frames:{camera_id}"
+    stream_key = f"frames:{camera_id}:session:{session_id}" if session_id else f"frames:{camera_id}"
     frame_cache = FrameCache(redis_client)
 
     # Start from the most recent published frame.
@@ -126,6 +127,7 @@ async def _frame_stream(
 @router.get("/{camera_id}")
 async def stream_camera(
     camera_id: str,
+    session_id: str | None = None,
 ):
     # Redis is initialized by the ingestion application's lifespan.
     from services.ingestion.main import redis_client
@@ -136,18 +138,19 @@ async def stream_camera(
             detail="Ingestion service is not ready",
         )
 
-    stream_key = f"frames:{camera_id}"
+    stream_key = f"frames:{camera_id}:session:{session_id}" if session_id else f"frames:{camera_id}"
 
     if not await redis_client.exists(stream_key):
         raise HTTPException(
             status_code=404,
-            detail="Camera stream not available",
+            detail="Camera stream not available" if not session_id else f"Session stream for {session_id} not available",
         )
 
     return StreamingResponse(
         _frame_stream(
             redis_client,
             camera_id,
+            session_id=session_id,
         ),
         media_type="multipart/x-mixed-replace; boundary=frame",
         headers={

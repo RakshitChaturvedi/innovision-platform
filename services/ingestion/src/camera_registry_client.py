@@ -19,9 +19,19 @@ class CameraRegistryClient:
             timeout=httpx.Timeout(connect=5.0, read=10.0, write=10.0, pool=5.0)
         )
 
+    def _auth_headers(self) -> dict[str, str]:
+        try:
+            from services.auth.src.jwt import create_access_token
+            from services.auth.src.rbac import Role
+            token = create_access_token(user_id="ingestion_service", role=Role.ADMIN, camera_ids=[])
+            return {"Authorization": f"Bearer {token}"}
+        except Exception as e:
+            logger.debug("camera_registry_client_auth_token_error: %s", e)
+            return {}
+
     async def get_active_cameras(self) -> list[dict[str, Any]]:
         try:
-            response = await self._client.get("/cameras")
+            response = await self._client.get("/cameras", headers=self._auth_headers())
             response.raise_for_status()
             data = response.json()
 
@@ -43,7 +53,7 @@ class CameraRegistryClient:
 
     async def get_camera(self, camera_id: str) -> dict[str, Any] | None:
         try:
-            response = await self._client.get(f"/cameras/{camera_id}")
+            response = await self._client.get(f"/cameras/{camera_id}", headers=self._auth_headers())
             if response.status_code == 404:
                 return None
             response.raise_for_status()
@@ -59,7 +69,11 @@ class CameraRegistryClient:
     async def update_status(self, camera_id: str, status:str) -> None:
         # report runtime cam status to cam registry (online, reconnecting, offline)
         try:
-            response = await self._client.patch(f"/cameras/{camera_id}/status", json={"status": status})
+            response = await self._client.patch(
+                f"/cameras/{camera_id}/status",
+                json={"status": status},
+                headers=self._auth_headers()
+            )
             response.raise_for_status()
 
             logger.info("camera_status_updated camera_id=%s status=%s", camera_id, status)

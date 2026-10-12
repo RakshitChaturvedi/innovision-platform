@@ -26,6 +26,7 @@ export interface CameraOverlayProps {
   cameraId: string;
   useCases?: string[];
   isOnline?: boolean;
+  sessionId?: string;
   children?: ReactNode;
 }
 
@@ -64,9 +65,10 @@ function parseHexToRgba(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-function resolveEndpoints(cameraId: string, useCases: string[] = []): string[] {
+function resolveEndpoints(cameraId: string, useCases: string[] = [], sessionId?: string): string[] {
   const normalized = useCases.map((u) => u.toLowerCase().trim());
   const urls: string[] = [];
+  const queryParam = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : "";
 
   const isUc1 = normalized.some(
     (u) => u === "uc1" || u.includes("people") || u.includes("count")
@@ -87,23 +89,23 @@ function resolveEndpoints(cameraId: string, useCases: string[] = []): string[] {
   );
 
   if (isUc1) {
-    urls.push(`${UC1_API_URL}/uc1/cameras/${cameraId}/latest-detections`);
+    urls.push(`${UC1_API_URL}/uc1/cameras/${cameraId}/latest-detections${queryParam}`);
   }
   if (isUc2) {
-    urls.push(`${UC2_API_URL}/uc2/cameras/${cameraId}/latest-detections`);
+    urls.push(`${UC2_API_URL}/uc2/cameras/${cameraId}/latest-detections${queryParam}`);
   }
   if (isUc3) {
-    urls.push(`${UC3_API_URL}/uc3/cameras/${cameraId}/latest-detections`);
+    urls.push(`${UC3_API_URL}/uc3/cameras/${cameraId}/latest-detections${queryParam}`);
   }
   if (isUc4) {
-    urls.push(`${UC4_API_URL}/uc4/cameras/${cameraId}/latest-detections`);
+    urls.push(`${UC4_API_URL}/uc4/cameras/${cameraId}/latest-detections${queryParam}`);
   }
 
   // If no matching use case tag provided or list empty, poll candidate services
   if (urls.length === 0) {
-    urls.push(`${UC3_API_URL}/uc3/cameras/${cameraId}/latest-detections`);
-    urls.push(`${UC2_API_URL}/uc2/cameras/${cameraId}/latest-detections`);
-    urls.push(`${UC4_API_URL}/uc4/cameras/${cameraId}/latest-detections`);
+    urls.push(`${UC3_API_URL}/uc3/cameras/${cameraId}/latest-detections${queryParam}`);
+    urls.push(`${UC2_API_URL}/uc2/cameras/${cameraId}/latest-detections${queryParam}`);
+    urls.push(`${UC4_API_URL}/uc4/cameras/${cameraId}/latest-detections${queryParam}`);
   }
 
   return urls;
@@ -113,6 +115,7 @@ export default function CameraOverlay({
   cameraId,
   useCases = [],
   isOnline = true,
+  sessionId,
   children,
 }: CameraOverlayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -129,7 +132,7 @@ export default function CameraOverlay({
 
     let isMounted = true;
     const abortController = new AbortController();
-    const urls = resolveEndpoints(cameraId, useCases);
+    const urls = resolveEndpoints(cameraId, useCases, sessionId);
 
     const fetchDetections = async () => {
       try {
@@ -168,7 +171,7 @@ export default function CameraOverlay({
       abortController.abort();
       clearInterval(intervalId);
     };
-  }, [cameraId, useCases, isOnline]);
+  }, [cameraId, useCases, isOnline, sessionId]);
 
   // Render bounding boxes on HTML5 canvas
   useEffect(() => {

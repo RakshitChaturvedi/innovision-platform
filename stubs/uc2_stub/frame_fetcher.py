@@ -55,7 +55,7 @@ async def fetch_frame(
     source = "unknown"
 
     # ── Tier 1: Redis hot cache ───────────────────────────────────
-    redis_key = f"frame:{camera_id}:{frame_seq}"
+    redis_key = getattr(frame_event, "frame_reference", None) or f"frame:{camera_id}:{frame_seq}"
     try:
         jpeg_bytes = await redis_client.get(redis_key)
         if jpeg_bytes:

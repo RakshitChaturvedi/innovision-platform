@@ -21,10 +21,10 @@ from services.auth.src.rbac import Role
 async def session_factory():
     db_url = os.getenv(
         "DATABASE_URL_LOCAL",
-        "postgresql+asyncpg://innovision:changeme@localhost:5432/innovision_platform"
+        "postgresql+asyncpg://innovision:changeme@localhost:5433/innovision_platform"
     )
     if "@postgres:5432" in db_url:
-        db_url = db_url.replace("@postgres:5432", "@localhost:5432")
+        db_url = db_url.replace("@postgres:5432", "@localhost:5433")
 
     engine = create_async_engine(db_url, echo=False)
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -96,10 +96,10 @@ async def setup_test_data(session_factory):
 
             await session.execute(
                 text("""
-                    INSERT INTO zones (id, site_id, name, created_at, updated_at)
-                    VALUES (:z_a, :s_a, 'Notif Zone A', now(), now())
+                    INSERT INTO zones (id, site_id, name, slug, created_at, updated_at)
+                    VALUES (:z_a, :s_a, 'Notif Zone A', :slug_a, now(), now())
                 """),
-                {"z_a": zone_a_id, "s_a": site_a_id}
+                {"z_a": zone_a_id, "s_a": site_a_id, "slug_a": f"notif_zone_{uuid.uuid4().hex[:8]}"}
             )
 
             await session.execute(

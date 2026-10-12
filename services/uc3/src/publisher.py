@@ -23,6 +23,7 @@ from sqlalchemy import text
 from shared.contracts.alert_event import AlertEvent
 from shared.contracts.enums import AlertSeverity, AlertStatus, FrameProvider, SourceUC
 from shared.platform_client.alert_publisher import AlertPublisher
+from services.uc3.src.ppe_config import CONF_THRESHOLD
 
 logger = logging.getLogger("uc3_publisher")
 
@@ -60,46 +61,185 @@ class UC3EventPublisher:
         except Exception as e:
             logger.warning("minio_snapshots_bucket_warning name=%s error=%s", MINIO_SNAPSHOTS_BUCKET, e)
 
-    async def get_camera_zone_and_rules(self, camera_id: str) -> tuple[Optional[UUID], Optional[frozenset[str]], str]:
+    async def get_camera_zone_and_rules(
+        self, camera_id: str
+    ) -> tuple[Optional[UUID], Optional[frozenset[str]], str, float]:
         """
         Runtime zone determination:
-        Camera -> look up zone_id -> obtain uc3_zone_ppe_rules -> return (zone_id, required_ppe_set, zone_name)
+        1. Look up camera in cameras table (id, organization_id, zone_id, metadata).
+        2. Prefer native cameras.zone_id column.
+        3. Fall back to metadata['zone_id'] only if safe UUID.
+        4. Validate resolved zone exists, is active, and matches camera tenant/org.
+        5. Fetch PPE rules from uc3_zone_ppe_rules or fallback to zones.required_ppe.
+        6. Determine zone-specific min_confidence (or CONF_THRESHOLD).
+        7. Fail-safe on invalid/missing/cross-tenant assignments without silent default rule assumption.
         """
+        default_conf = CONF_THRESHOLD
         try:
             async with self._sessionmaker() as session:
                 cam_res = await session.execute(
-                    text("SELECT metadata FROM cameras WHERE id = :id"),
+                    text("SELECT id, organization_id, zone_id, metadata FROM cameras WHERE id = :id"),
                     {"id": camera_id},
                 )
                 cam_row = cam_res.fetchone()
-                zone_id_str = None
-                if cam_row and cam_row.metadata:
-                    zone_id_str = cam_row.metadata.get("zone_id")
+                if not cam_row:
+                    logger.warning("camera_not_found camera_id=%s", camera_id)
+                    return None, None, "Unknown Camera", default_conf
 
-                if not zone_id_str:
-                    return None, None, "Default Zone"
+                cam_org_id = str(cam_row.organization_id) if cam_row.organization_id else None
 
-                zone_uuid = UUID(zone_id_str)
-                zone_res = await session.execute(
-                    text("SELECT name FROM uc3_zones WHERE id = :id AND is_active = true"),
+                # 1. Prefer native cameras.zone_id column
+                zone_val = cam_row.zone_id
+                is_from_metadata = False
+
+                # 2. Fallback to metadata['zone_id'] only if native zone_id is unset
+                if not zone_val and cam_row.metadata and isinstance(cam_row.metadata, dict):
+                    meta_zone = cam_row.metadata.get("zone_id")
+                    if meta_zone:
+                        zone_val = meta_zone
+                        is_from_metadata = True
+
+                # If camera is genuinely unassigned, return intended default policy
+                if not zone_val:
+                    logger.debug("camera_unassigned camera_id=%s", camera_id)
+                    return None, None, "Unassigned Camera", default_conf
+
+                # Validate UUID format
+                try:
+                    zone_uuid = UUID(str(zone_val))
+                except (ValueError, TypeError, AttributeError) as e:
+                    logger.error(
+                        "camera_zone_resolution_invalid_uuid camera_id=%s zone_val=%s from_metadata=%s error=%s",
+                        camera_id, zone_val, is_from_metadata, e
+                    )
+                    # Fail-safe: do not silently apply arbitrary default rules to invalid zone
+                    return None, frozenset(), "Invalid Zone UUID", default_conf
+
+                # 3. Query zone from authoritative platform hierarchy (zones + sites) and uc3_zones
+                z_res = await session.execute(
+                    text("""
+                        SELECT z.id, z.name, z.active, s.organization_id, z.required_ppe
+                        FROM zones z
+                        LEFT JOIN sites s ON z.site_id = s.id
+                        WHERE z.id = :id
+                    """),
                     {"id": str(zone_uuid)},
                 )
-                zone_row = zone_res.fetchone()
-                zone_name = zone_row.name if zone_row else "Default Zone"
+                z_row = z_res.fetchone()
 
+                uz_res = await session.execute(
+                    text("""
+                        SELECT id, name, organization_id, is_active
+                        FROM uc3_zones
+                        WHERE id = :id
+                    """),
+                    {"id": str(zone_uuid)},
+                )
+                uz_row = uz_res.fetchone()
+
+                # Check existence
+                if not z_row and not uz_row:
+                    logger.error(
+                        "camera_assigned_zone_not_found camera_id=%s zone_id=%s",
+                        camera_id, zone_uuid
+                    )
+                    # Fail-safe: explicitly assigned zone that cannot be resolved
+                    return None, frozenset(), f"Zone Not Found ({zone_uuid})", default_conf
+
+                zone_name = (z_row.name if z_row and z_row.name else (uz_row.name if uz_row and uz_row.name else "Named Zone"))
+
+                # Check active status
+                is_active = True
+                if z_row is not None and z_row.active is not None:
+                    is_active = bool(z_row.active)
+                elif uz_row is not None and uz_row.is_active is not None:
+                    is_active = bool(uz_row.is_active)
+
+                if not is_active:
+                    logger.warning(
+                        "camera_assigned_zone_inactive camera_id=%s zone_id=%s zone_name=%s",
+                        camera_id, zone_uuid, zone_name
+                    )
+                    # Fail-safe: inactive zone does not enforce arbitrary rules
+                    return None, frozenset(), f"Inactive Zone ({zone_name})", default_conf
+
+                # Check organization / tenant isolation
+                zone_org_id = None
+                if z_row and z_row.organization_id:
+                    zone_org_id = str(z_row.organization_id)
+                elif uz_row and uz_row.organization_id:
+                    zone_org_id = str(uz_row.organization_id)
+
+                if cam_org_id and zone_org_id and cam_org_id != zone_org_id:
+                    logger.error(
+                        "cross_tenant_zone_violation camera_id=%s cam_org=%s zone_org=%s zone_id=%s",
+                        camera_id, cam_org_id, zone_org_id, zone_uuid
+                    )
+                    # Fail-safe: deny cross-tenant zone
+                    return None, frozenset(), "Cross-Tenant Zone Denied", default_conf
+
+                # 4. Resolve min_confidence
+                zone_min_conf = default_conf
+                async def _safe_query_conf(sql: str):
+                    if hasattr(session, "begin_nested"):
+                        try:
+                            async with session.begin_nested():
+                                r = await session.execute(text(sql), {"id": str(zone_uuid)})
+                                row = r.fetchone()
+                                if row is not None:
+                                    val = getattr(row, "min_confidence", None)
+                                    if val is None:
+                                        try:
+                                            val = row[0]
+                                        except Exception:
+                                            pass
+                                    if val is not None:
+                                        return float(val)
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            r = await session.execute(text(sql), {"id": str(zone_uuid)})
+                            row = r.fetchone()
+                            if row is not None:
+                                val = getattr(row, "min_confidence", None)
+                                if val is None:
+                                    try:
+                                        val = row[0]
+                                    except Exception:
+                                        pass
+                                if val is not None:
+                                    return float(val)
+                        except Exception:
+                            pass
+                    return None
+
+                uz_conf = await _safe_query_conf("SELECT min_confidence FROM uc3_zones WHERE id = :id")
+                if uz_conf is not None:
+                    zone_min_conf = uz_conf
+                else:
+                    z_conf = await _safe_query_conf("SELECT min_confidence FROM zones WHERE id = :id")
+                    if z_conf is not None:
+                        zone_min_conf = z_conf
+
+                # 5. Query PPE rules belonging to that resolved zone
                 rules_res = await session.execute(
                     text("SELECT ppe_type FROM uc3_zone_ppe_rules WHERE zone_id = :id AND required = true"),
                     {"id": str(zone_uuid)},
                 )
                 rule_rows = rules_res.fetchall()
-                if not rule_rows:
-                    return zone_uuid, None, zone_name
+                if rule_rows:
+                    required_set = frozenset(r.ppe_type.lower() for r in rule_rows)
+                elif z_row and z_row.required_ppe:
+                    required_set = frozenset(p.lower() for p in z_row.required_ppe)
+                else:
+                    # Validly assigned zone has 0 required PPE rules configured
+                    required_set = frozenset()
 
-                required_set = frozenset(r.ppe_type.lower() for r in rule_rows)
-                return zone_uuid, required_set, zone_name
+                return zone_uuid, required_set, zone_name, zone_min_conf
         except Exception as e:
-            logger.debug("get_camera_zone_and_rules_fallback camera_id=%s error=%s", camera_id, e)
-            return None, None, "Default Zone"
+            logger.error("get_camera_zone_and_rules_error camera_id=%s error=%s", camera_id, e)
+            return None, frozenset(), "Resolution Error", default_conf
 
     async def persist_uc3_event(
         self,

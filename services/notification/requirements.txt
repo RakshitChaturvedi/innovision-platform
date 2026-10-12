@@ -7,3 +7,4 @@ sqlalchemy
 asyncpg
 greenlet
 bcrypt
+PyJWT

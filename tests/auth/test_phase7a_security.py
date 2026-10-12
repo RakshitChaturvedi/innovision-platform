@@ -49,6 +49,39 @@ async def test_authenticated_token_payload_resolved():
     assert "cam-1" in payload["camera_ids"]
 
 
+@pytest.mark.asyncio
+async def test_missing_authorization_header_rejected():
+    with pytest.raises(HTTPException) as exc_info:
+        await get_current_user(authorization=None)
+    assert exc_info.value.status_code == 401
+    assert "Authentication credentials required" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_empty_bearer_token_rejected():
+    with pytest.raises(HTTPException) as exc_info:
+        await get_current_user(authorization="Bearer ")
+    assert exc_info.value.status_code == 401
+    assert "Invalid authorization header" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_mock_and_dev_tokens_rejected():
+    for mock_token in ("mock-token", "dev-token", "superadmin-token"):
+        with pytest.raises(HTTPException) as exc_info:
+            await get_current_user(authorization=f"Bearer {mock_token}")
+        assert exc_info.value.status_code == 401
+        assert "Invalid or expired token" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_valid_internal_service_token_authenticated():
+    token = create_access_token(user_id="internal_service", role=Role.SUPERADMIN, camera_ids=[])
+    payload = await get_current_user(authorization=f"Bearer {token}")
+    assert payload["sub"] == "internal_service"
+    assert payload["role"] == Role.SUPERADMIN
+
+
 # ============================================================================
 # 2. ROLE AUTHORIZATION & HIERARCHY TESTS
 # ============================================================================
