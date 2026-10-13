@@ -194,14 +194,32 @@ def upgrade():
     INSERT INTO cameras (id, name, location, status, use_cases, rtsp_url)
     VALUES
         ('00000000-0000-0000-0000-000000000001',
-            'Test Camera UC1', 'Integration Test', 'online', ARRAY['uc1'], '/app/test_data/videos/uc1.mp4'),
+            'Camera 1 — Main Lobby & Turnstile', 'Zone A — Main Lobby & Turnstile', 'online', ARRAY['uc1'], '/app/test_data/videos/uc1.mp4'),
+        ('00000000-0000-0000-0000-000000000102',
+            'Camera 1B — Assembly Floor Line A', 'Zone B — Assembly Floor Line A', 'online', ARRAY['uc1'], '/app/test_data/videos/uc1.mp4'),
+        ('00000000-0000-0000-0000-000000000103',
+            'Camera 1C — Server Room & Archives', 'Zone C — Server Room & Archives', 'online', ARRAY['uc1'], '/app/test_data/videos/uc1.mp4'),
         ('00000000-0000-0000-0000-000000000002',
-            'Test Camera UC2', 'Integration Test', 'online', ARRAY['uc2'], '/app/test_data/videos/uc2.mp4'),
+            'Camera 2 — Boiler Room West', 'Zone A — Boiler Room West', 'online', ARRAY['uc2'], '/app/test_data/videos/uc2.mp4'),
+        ('00000000-0000-0000-0000-000000000202',
+            'Camera 2B — Welding & Torch Bay 4', 'Zone B — Welding & Fabrication Bay 4', 'online', ARRAY['uc2'], '/app/test_data/videos/uc2.mp4'),
+        ('00000000-0000-0000-0000-000000000203',
+            'Camera 2C — Chemical Storage Warehouse', 'Zone C — Chemical Storage Warehouse', 'online', ARRAY['uc2'], '/app/test_data/videos/uc2.mp4'),
         ('00000000-0000-0000-0000-000000000003',
-            'Test Camera UC3', 'Integration Test', 'online', ARRAY['uc3'], '/app/test_data/videos/uc3.mp4'),
+            'Camera 3 — Construction Sector A', 'Zone A — Construction Sector A', 'online', ARRAY['uc3'], '/app/test_data/videos/uc3.mp4'),
+        ('00000000-0000-0000-0000-000000000302',
+            'Camera 3B — Freight Loading Dock', 'Zone B — Freight Loading Dock', 'online', ARRAY['uc3'], '/app/test_data/videos/uc3.mp4'),
+        ('00000000-0000-0000-0000-000000000303',
+            'Camera 3C — Electronics Assembly Bay 3', 'Zone C — Electronics Assembly Bay 3', 'online', ARRAY['uc3'], '/app/test_data/videos/uc3.mp4'),
         ('00000000-0000-0000-0000-000000000004',
-            'Test Camera UC4', 'Integration Test', 'online', ARRAY['uc4'], '/app/test_data/videos/uc4.mp4')
+            'Camera 4 — Main Vehicle Gate B', 'Zone A — Main Vehicle Gate B', 'online', ARRAY['uc4'], '/app/test_data/videos/uc4.mp4'),
+        ('00000000-0000-0000-0000-000000000402',
+            'Camera 4B — Perimeter Speed Lane', 'Zone B — Perimeter Speed Lane', 'online', ARRAY['uc4'], '/app/test_data/videos/uc4.mp4'),
+        ('00000000-0000-0000-0000-000000000403',
+            'Camera 4C — Logistics Yard & Staging', 'Zone C — Logistics Yard & Staging', 'online', ARRAY['uc4'], '/app/test_data/videos/uc4.mp4')
     ON CONFLICT (id) DO UPDATE SET
+        name = EXCLUDED.name,
+        location = EXCLUDED.location,
         use_cases = EXCLUDED.use_cases,
         rtsp_url = EXCLUDED.rtsp_url
 """)
@@ -216,9 +234,17 @@ def upgrade():
         'superadmin',
         ARRAY[
             '00000000-0000-0000-0000-000000000001'::uuid,
+            '00000000-0000-0000-0000-000000000102'::uuid,
+            '00000000-0000-0000-0000-000000000103'::uuid,
             '00000000-0000-0000-0000-000000000002'::uuid,
+            '00000000-0000-0000-0000-000000000202'::uuid,
+            '00000000-0000-0000-0000-000000000203'::uuid,
             '00000000-0000-0000-0000-000000000003'::uuid,
-            '00000000-0000-0000-0000-000000000004'::uuid
+            '00000000-0000-0000-0000-000000000302'::uuid,
+            '00000000-0000-0000-0000-000000000303'::uuid,
+            '00000000-0000-0000-0000-000000000004'::uuid,
+            '00000000-0000-0000-0000-000000000402'::uuid,
+            '00000000-0000-0000-0000-000000000403'::uuid
         ]
     )
     ON CONFLICT DO NOTHING

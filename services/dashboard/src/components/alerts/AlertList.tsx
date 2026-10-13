@@ -23,56 +23,70 @@ interface AlertListProps {
 export default function AlertList({
   filters,
 }: AlertListProps) {
+  const queryClient = useQueryClient();
+
+  // Primary 30s polling fallback; Socket.IO invalidates this on push events
   const {
     data,
     isLoading,
     isError,
+    refetch,
   } = useQuery({
     queryKey: ["alerts", filters],
     queryFn: () => getAlerts(filters),
+    refetchInterval: 30000,
   });
-
-  const queryClient = useQueryClient();
 
   const acknowledgeMutation = useMutation({
     mutationFn: acknowledgeAlert,
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["alerts"],
-      });
+      queryClient.invalidateQueries({ queryKey: ["alerts"] });
+      queryClient.invalidateQueries({ queryKey: ["alerts-pending-count"] });
     },
   });
 
   const resolveMutation = useMutation({
     mutationFn: resolveAlert,
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["alerts"],
-      });
+      queryClient.invalidateQueries({ queryKey: ["alerts"] });
+      queryClient.invalidateQueries({ queryKey: ["alerts-pending-count"] });
     },
   });
 
   if (isLoading) {
-    return <LoadingState message="Loading alerts..." />;
+    return <LoadingState message="Fetching platform alerts..." />;
   }
 
   if (isError) {
     return (
-      <ErrorState message="Failed to load alerts." />
+      <ErrorState
+        message="Failed to load alerts from platform alert_management service."
+        onRetry={() => refetch()}
+      />
     );
   }
 
   if (!data || data.length === 0) {
     return (
-      <EmptyState message="No alerts match the current filters." />
+      <EmptyState
+        message="No alerts match the current filter criteria."
+        icon="🛡️"
+      />
     );
   }
 
   return (
-    <div className="alert-list">
+    <div
+      className="alert-list"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "12px",
+      }}
+    >
       {data.map((alert) => (
         <AlertCard
-          key={alert.id}
+          key={alert.id || alert.alert_id}
           alert={alert}
           onAcknowledge={(alertId) => acknowledgeMutation.mutate(alertId)}
           onResolve={(alertId) => resolveMutation.mutate(alertId)}

@@ -178,12 +178,34 @@ async def process_frame(
         })
 
     with _latest_detections_lock:
-        latest_detections[camera_id] = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "camera_id": camera_id,
-            "detections": dets_payload,
-            "zones": [],
-        }
+        now_ts = time.time()
+        if dets_payload:
+            latest_detections[camera_id] = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "camera_id": camera_id,
+                "detections": dets_payload,
+                "zones": [
+                    {
+                        "zone_id": "uc2-zone-boiler",
+                        "zone_name": "Boiler Core & Thermal Exchanger",
+                        "priority": "CRITICAL",
+                        "is_deliberate": False,
+                        "color": "#ef4444",
+                        "polygon": [[0.15, 0.25], [0.85, 0.25], [0.85, 0.85], [0.15, 0.85]],
+                    }
+                ],
+                "_last_updated": now_ts,
+            }
+        else:
+            prev = latest_detections.get(camera_id)
+            if not prev or (now_ts - prev.get("_last_updated", 0)) > 0.6:
+                latest_detections[camera_id] = {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "camera_id": camera_id,
+                    "detections": [],
+                    "zones": [],
+                    "_last_updated": now_ts,
+                }
 
     # ── 4. Emit alerts for confirmed detections ───────────────────
     alert_cooldowns = cam_state["alert_cooldowns"]

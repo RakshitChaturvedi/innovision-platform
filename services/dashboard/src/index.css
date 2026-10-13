@@ -1379,3 +1379,99 @@ p {
     border-bottom: none;
   }
 }
+
+/* =========================================================
+   Modular Shell & Reusable Design System Extensions
+   ========================================================= */
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.stat-card.clickable:hover {
+  border-color: var(--border-hover, #3a3f4b) !important;
+  transform: translateY(-2px);
+}
+
+.uc-modules-section {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border, #292d36);
+}
+
+.uc-module-nav-group {
+  margin-bottom: 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+  overflow: hidden;
+  transition: background-color 0.15s;
+}
+
+.uc-module-header-button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.uc-module-header-button:hover {
+  background: var(--surface-hover, #1d2029);
+}
+
+.uc-module-title-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.uc-module-toggle-chevron {
+  font-size: 11px;
+  color: var(--text-muted, #707786);
+}
+
+.uc-sub-items {
+  padding-left: 14px;
+  padding-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nav-item.uc-sub-item {
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: 6px;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.clickable-row:hover {
+  background-color: var(--surface-hover, #1d2029) !important;
+}
+
+.custom-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+}

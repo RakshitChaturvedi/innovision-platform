@@ -14,34 +14,105 @@ if not DATABASE_URL:
 DEV_PASSWORD = "admin123"
 
 CAMERAS = [
+    # ── UC1: Worker Count & Presence ──
     {
         "id": "00000000-0000-0000-0000-000000000001",
-        "name": "Test Camera UC1",
-        "location": "Development",
+        "name": "Camera 1 — Main Lobby & Turnstile",
+        "location": "Zone A — Main Lobby & Turnstile",
         "video_path": "/app/test_data/videos/uc1.mp4",
         "use_cases": ["uc1"],
         "fps": 10,
     },
     {
+        "id": "00000000-0000-0000-0000-000000000102",
+        "name": "Camera 1B — Assembly Floor Line A",
+        "location": "Zone B — Assembly Floor Line A",
+        "video_path": "/app/test_data/videos/uc1.mp4",
+        "use_cases": ["uc1"],
+        "fps": 10,
+    },
+    {
+        "id": "00000000-0000-0000-0000-000000000103",
+        "name": "Camera 1C — Server Room & Archives",
+        "location": "Zone C — Server Room & Archives",
+        "video_path": "/app/test_data/videos/uc1.mp4",
+        "use_cases": ["uc1"],
+        "fps": 10,
+    },
+
+    # ── UC2: Fire / Smoke / Sparks ──
+    {
         "id": "00000000-0000-0000-0000-000000000002",
-        "name": "Test Camera UC2",
-        "location": "Development",
+        "name": "Camera 2 — Boiler Room West",
+        "location": "Zone A — Boiler Room West",
         "video_path": "/app/test_data/videos/uc2.mp4",
         "use_cases": ["uc2"],
         "fps": 10,
     },
     {
+        "id": "00000000-0000-0000-0000-000000000202",
+        "name": "Camera 2B — Welding & Torch Bay 4",
+        "location": "Zone B — Welding & Fabrication Bay 4",
+        "video_path": "/app/test_data/videos/uc2.mp4",
+        "use_cases": ["uc2"],
+        "fps": 10,
+    },
+    {
+        "id": "00000000-0000-0000-0000-000000000203",
+        "name": "Camera 2C — Chemical Storage Warehouse",
+        "location": "Zone C — Chemical Storage Warehouse",
+        "video_path": "/app/test_data/videos/uc2.mp4",
+        "use_cases": ["uc2"],
+        "fps": 10,
+    },
+
+    # ── UC3: PPE Safety Compliance ──
+    {
         "id": "00000000-0000-0000-0000-000000000003",
-        "name": "Test Camera UC3",
-        "location": "Development",
+        "name": "Camera 3 — Construction Sector A",
+        "location": "Zone A — Construction Sector A",
         "video_path": "/app/test_data/videos/uc3.mp4",
         "use_cases": ["uc3"],
         "fps": 10,
     },
     {
+        "id": "00000000-0000-0000-0000-000000000302",
+        "name": "Camera 3B — Freight Loading Dock",
+        "location": "Zone B — Freight Loading Dock",
+        "video_path": "/app/test_data/videos/uc3.mp4",
+        "use_cases": ["uc3"],
+        "fps": 10,
+    },
+    {
+        "id": "00000000-0000-0000-0000-000000000303",
+        "name": "Camera 3C — Electronics Assembly Bay 3",
+        "location": "Zone C — Electronics Assembly Bay 3",
+        "video_path": "/app/test_data/videos/uc3.mp4",
+        "use_cases": ["uc3"],
+        "fps": 10,
+    },
+
+    # ── UC4: Vehicle Access & Speed ──
+    {
         "id": "00000000-0000-0000-0000-000000000004",
-        "name": "Test Camera UC4",
-        "location": "Development",
+        "name": "Camera 4 — Main Vehicle Gate B",
+        "location": "Zone A — Main Vehicle Gate B",
+        "video_path": "/app/test_data/videos/uc4.mp4",
+        "use_cases": ["uc4"],
+        "fps": 10,
+    },
+    {
+        "id": "00000000-0000-0000-0000-000000000402",
+        "name": "Camera 4B — Perimeter Speed Lane",
+        "location": "Zone B — Perimeter Speed Lane",
+        "video_path": "/app/test_data/videos/uc4.mp4",
+        "use_cases": ["uc4"],
+        "fps": 10,
+    },
+    {
+        "id": "00000000-0000-0000-0000-000000000403",
+        "name": "Camera 4C — Logistics Yard & Staging",
+        "location": "Zone C — Logistics Yard & Staging",
         "video_path": "/app/test_data/videos/uc4.mp4",
         "use_cases": ["uc4"],
         "fps": 10,
@@ -55,12 +126,7 @@ USERS = [
         "email": "admin@innovision.com",
         "password": DEV_PASSWORD,
         "role": "superadmin",
-        "camera_ids": [
-            "00000000-0000-0000-0000-000000000001",
-            "00000000-0000-0000-0000-000000000002",
-            "00000000-0000-0000-0000-000000000003",
-            "00000000-0000-0000-0000-000000000004",
-        ],
+        "camera_ids": [c["id"] for c in CAMERAS],
     },
     {
         "id": "ffffffff-ffff-ffff-ffff-fffffffffff1",

@@ -636,12 +636,34 @@ async def process_frame(
         })
 
     with _latest_detections_lock:
-        latest_detections[camera_id] = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "camera_id": camera_id,
-            "detections": detections_payload,
-            "zones": [],
-        }
+        now_ts = time.time()
+        if detections_payload:
+            latest_detections[camera_id] = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "camera_id": camera_id,
+                "detections": detections_payload,
+                "zones": [
+                    {
+                        "zone_id": "uc4-zone-gate",
+                        "zone_name": "Gate B Barrier & ANPR Lane",
+                        "priority": "HIGH",
+                        "is_deliberate": False,
+                        "color": "#14b8a6",
+                        "polygon": [[0.1, 0.45], [0.9, 0.45], [0.9, 0.95], [0.1, 0.95]],
+                    }
+                ],
+                "_last_updated": now_ts,
+            }
+        else:
+            prev = latest_detections.get(camera_id)
+            if not prev or (now_ts - prev.get("_last_updated", 0)) > 0.6:
+                latest_detections[camera_id] = {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "camera_id": camera_id,
+                    "detections": [],
+                    "zones": [],
+                    "_last_updated": now_ts,
+                }
 
     # ── 8. Stale tracker cleanup ─────────────────────────────────
     stale_tids = [
