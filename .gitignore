@@ -223,3 +223,7 @@ __marimo__/
 .env
 .env.local
 .env.*.local
+
+# Database dumps and backups
+infra/backups/
+*.sql
