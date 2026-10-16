@@ -241,6 +241,49 @@ class UC3EventPublisher:
             logger.error("get_camera_zone_and_rules_error camera_id=%s error=%s", camera_id, e)
             return None, frozenset(), "Resolution Error", default_conf
 
+    async def is_camera_uc3_enabled(self, camera_id: str) -> bool:
+        """
+        Check whether UC3 is enabled for the camera under effective analytics configuration.
+        Inspects camera_effective_analytics joined with analytics_catalog.
+        Falls back to cameras.use_cases if effective analytics table has no entry.
+        """
+        try:
+            async with self._sessionmaker() as session:
+                # 1. Authoritative check in camera_effective_analytics
+                eff_res = await session.execute(
+                    text("""
+                        SELECT e.is_active
+                        FROM camera_effective_analytics e
+                        JOIN analytics_catalog a ON e.analytic_id = a.id
+                        WHERE e.camera_id = :id
+                          AND (LOWER(a.internal_code) = 'uc3' OR LOWER(a.code) = 'uc3' OR LOWER(a.code) LIKE '%ppe%')
+                    """),
+                    {"id": camera_id},
+                )
+                eff_row = eff_res.fetchone()
+                if eff_row is not None:
+                    return bool(eff_row.is_active)
+
+                # 2. Fallback to cameras table use_cases / metadata
+                cam_res = await session.execute(
+                    text("SELECT use_cases, metadata FROM cameras WHERE id = :id"),
+                    {"id": camera_id},
+                )
+                cam_row = cam_res.fetchone()
+                if cam_row is not None:
+                    use_cases = cam_row.use_cases or []
+                    norm_ucs = [str(u).strip().lower() for u in use_cases]
+                    if any(u in norm_ucs for u in ("uc3", "ppe", "ppe_detection", "uc3_ppe_detection")):
+                        return True
+                    meta = cam_row.metadata if isinstance(cam_row.metadata, dict) else {}
+                    if meta.get("uc3_enabled") is False or meta.get("disabled_uc", {}).get("uc3"):
+                        return False
+
+                return True
+        except Exception as e:
+            logger.debug("is_camera_uc3_enabled_error camera_id=%s error=%s", camera_id, e)
+            return True
+
     async def persist_uc3_event(
         self,
         camera_id: UUID,

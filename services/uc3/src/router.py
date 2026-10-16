@@ -20,7 +20,12 @@ async def get_latest_detections(
     if consumer_manager is None:
         raise HTTPException(status_code=503, detail="UC3 service is initializing")
 
-    detections_data = consumer_manager.latest_detections.get(camera_id)
+    if hasattr(consumer_manager, "get_latest_detections"):
+        detections_data = consumer_manager.get_latest_detections(camera_id, session_id)
+    else:
+        cache_key = f"{camera_id}:{session_id}" if session_id else camera_id
+        detections_data = consumer_manager.latest_detections.get(cache_key)
+
     if not detections_data:
         return {
             "timestamp": "",
@@ -30,6 +35,7 @@ async def get_latest_detections(
             "detections": [],
             "severity": "ok",
             "violations": [],
+            "violations_only": True,
         }
 
     return detections_data

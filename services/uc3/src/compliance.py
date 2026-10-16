@@ -275,10 +275,10 @@ def _evaluate_worker(
         norm_label = d["label"].strip().lower().replace("_", "-")
         by_label[norm_label].append(d)
 
+    # Default all worker detections to compliant and non-violation
     for d in worker_dets:
-        norm_lbl = d["label"].strip().lower().replace("_", "-")
-        if norm_lbl in ALWAYS_COMPLIANT:
-            d["compliant"] = True
+        d["compliant"] = True
+        d["is_violation"] = False
 
     # 6 Canonical PPE evaluations covering model supported positive and negative classes
     PPE_EVALUATIONS = [
@@ -347,10 +347,19 @@ def _evaluate_worker(
             for nl in neg_labels:
                 for d in by_label.get(nl, []):
                     d["compliant"] = True
+                    d["is_violation"] = False
             continue
 
         pos_dets = [d for nl in pos_labels for d in by_label.get(nl, [])]
         neg_dets = [d for nl in neg_labels for d in by_label.get(nl, [])]
+        anat_entries = (
+            [
+                d for d in by_label.get(anat_part, [])
+                if _area(tuple(d["box"])) >= MIN_BODY_PART_AREA
+            ]
+            if anat_part is not None
+            else []
+        )
 
         has_pos = len(pos_dets) > 0
         has_neg = len(neg_dets) > 0
@@ -363,37 +372,21 @@ def _evaluate_worker(
             best_neg_conf = max(d["conf"] for d in neg_dets)
             if best_pos_conf >= best_neg_conf:
                 covered = True
-                for d in pos_dets:
-                    d["compliant"] = True
-                for d in neg_dets:
-                    d["compliant"] = True
             else:
                 covered = False
-                for d in neg_dets:
-                    d["compliant"] = False
         elif has_neg:
             # Only negative detected: directly contributes to missing PPE
             covered = False
-            for d in neg_dets:
-                d["compliant"] = False
         elif has_pos:
             # Only positive detected
             covered = True
-            for d in pos_dets:
-                d["compliant"] = True
         else:
             # Neither positive nor negative detected
             if anat_part is not None:
                 # Check anatomical body part
-                anat_entries = [
-                    d for d in by_label.get(anat_part, [])
-                    if _area(tuple(d["box"])) >= MIN_BODY_PART_AREA
-                ]
                 if anat_entries:
                     # Anatomical part is visible, but no PPE detected covering it
                     covered = False
-                    for d in anat_entries:
-                        d["compliant"] = False
                 else:
                     # Anatomical part is not detected.
                     # Per requirement 10: do not use absence of anatomical part as sole evidence of missing PPE.
@@ -407,6 +400,7 @@ def _evaluate_worker(
 
         was_active = state._timeline(part).violation_active
         raise_violation = state.update(part, covered=covered, now=now)
+
         if raise_violation:
             frame_violations.append(vio_name)
             if not was_active:
@@ -416,6 +410,44 @@ def _evaluate_worker(
                     "violation": vio_name,
                     "confidence": state._timeline(part).last_fraction_missing,
                 })
+
+            # Geometry localization for confirmed missing PPE violation
+            if not covered:
+                vio_display_label = f"No {cat.replace('_', ' ').title()}"
+                if has_neg and neg_dets:
+                    for nd in neg_dets:
+                        nd["compliant"] = False
+                        nd["is_violation"] = True
+                        nd["violation_type"] = vio_name
+                        nd["violation_label"] = vio_display_label
+                elif anat_entries:
+                    for ad in anat_entries:
+                        ad["compliant"] = False
+                        ad["is_violation"] = True
+                        ad["violation_type"] = vio_name
+                        ad["violation_label"] = vio_display_label
+                else:
+                    person_entries = by_label.get("person", []) or by_label.get("worker", [])
+                    if person_entries:
+                        p = person_entries[0]
+                        worker_dets.append({
+                            "box": p["box"],
+                            "conf": round(state._timeline(part).last_fraction_missing or p["conf"], 2),
+                            "label": f"no-{cat}",
+                            "_track_id": worker_id,
+                            "compliant": False,
+                            "is_violation": True,
+                            "violation_type": vio_name,
+                            "violation_label": vio_display_label,
+                        })
+        else:
+            # Not confirmed active: all candidate detections remain compliant
+            for nd in neg_dets:
+                nd["compliant"] = True
+                nd["is_violation"] = False
+            for ad in anat_entries:
+                ad["compliant"] = True
+                ad["is_violation"] = False
 
     for d in worker_dets:
         if "compliant" not in d:
@@ -433,6 +465,7 @@ def evaluate_compliance(
     for d in detections:
         if d["conf"] < eff_conf:
             d["compliant"] = True
+            d["is_violation"] = False
 
     active = [d for d in detections if d["conf"] >= eff_conf]
     worker_groups = _group_by_worker(active)
@@ -441,14 +474,20 @@ def evaluate_compliance(
     worker_violations: list[dict] = []
 
     for worker_id, worker_dets in worker_groups.items():
+        orig_len = len(worker_dets)
         _evaluate_worker(
             worker_id, worker_dets, frame_violations, worker_violations,
             worker_states, now, required_ppe,
         )
+        if len(worker_dets) > orig_len:
+            for new_d in worker_dets[orig_len:]:
+                detections.append(new_d)
 
     for d in detections:
         if "compliant" not in d:
             d["compliant"] = True
+        if "is_violation" not in d:
+            d["is_violation"] = not d["compliant"]
 
     seen:       set[str] = set()
     unique_vio: list[str] = []

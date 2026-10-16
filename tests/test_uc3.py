@@ -19,6 +19,7 @@ from services.uc3.src.compliance import (
 from services.uc3.src.consumer import (
     format_detections_for_overlay,
     get_class_color,
+    UC3ConsumerManager,
 )
 from services.uc3.src.ppe_config import CONF_THRESHOLD
 from services.uc3.src.publisher import UC3EventPublisher
@@ -959,4 +960,302 @@ def test_overlay_response_fields_and_contract_compatibility():
     sub_no_helmet = next(d for d in latest_response["detections"] if d["label"] == "No Helmet")
     assert sub_no_helmet["compliant"] is True
     assert sub_no_helmet["color"] == "#94A3B8"
+
+
+# ==============================================================================
+# 6. Violation-Only Overlay & Alert Consistency Scenarios (Scenarios A through I)
+# ==============================================================================
+
+def test_scenario_a_zone_requires_helmet_gloves_worker_has_both():
+    """Scenario A: Zone requires helmet and gloves; worker has both -> no visible boxes and no alert."""
+    session_state = new_session_state()
+    detections = [
+        {"label": "person", "conf": 0.90, "box": (0.2, 0.1, 0.8, 0.9), "_track_id": 1},
+        {"label": "helmet", "conf": 0.88, "box": (0.38, 0.08, 0.62, 0.25), "_track_id": 1},
+        {"label": "gloves", "conf": 0.85, "box": (0.2, 0.5, 0.35, 0.7), "_track_id": 1},
+    ]
+
+    severity, violations, worker_violations = evaluate_compliance(
+        detections=detections,
+        worker_states=session_state,
+        now=0.0,
+        required_ppe=frozenset({"helmet", "gloves"}),
+    )
+
+    assert severity == "ok"
+    assert len(violations) == 0
+    assert len(worker_violations) == 0
+
+    visible_overlay = format_detections_for_overlay(detections, violations_only=True)
+    assert len(visible_overlay) == 0
+
+
+def test_scenario_b_zone_requires_helmet_gloves_worker_missing_gloves():
+    """Scenario B: Zone requires helmet and gloves; worker wears helmet but is confirmed missing gloves -> only missing gloves is red, alert generated."""
+    session_state = new_session_state()
+    detections = [
+        {"label": "person", "conf": 0.90, "box": (0.2, 0.1, 0.8, 0.9), "_track_id": 1},
+        {"label": "helmet", "conf": 0.88, "box": (0.38, 0.08, 0.62, 0.25), "_track_id": 1},
+        {"label": "no-gloves", "conf": 0.85, "box": (0.2, 0.5, 0.35, 0.7), "_track_id": 1},
+    ]
+
+    all_worker_violations = []
+    for t in [0.0, 0.5, 1.0, 1.5, 2.0, 2.5]:
+        severity, violations, worker_violations = evaluate_compliance(
+            detections=detections,
+            worker_states=session_state,
+            now=t,
+            required_ppe=frozenset({"helmet", "gloves"}),
+        )
+        all_worker_violations.extend(worker_violations)
+
+    assert severity in ("medium", "high")
+    assert "no-hands-protection" in violations
+    assert any(wv["ppe_type"] == "gloves" for wv in all_worker_violations)
+
+    # User-facing overlay shows ONLY the confirmed missing-gloves violation in red
+    visible_overlay = format_detections_for_overlay(detections, violations_only=True)
+    assert len(visible_overlay) == 1
+    assert visible_overlay[0]["label"] == "No Gloves"
+    assert visible_overlay[0]["color"] == "#FF3333"
+    assert visible_overlay[0]["compliant"] is False
+    assert visible_overlay[0]["is_violation"] is True
+
+
+def test_scenario_c_zone_requires_helmet_only_worker_missing_gloves_wears_helmet():
+    """Scenario C: Zone requires helmet only; worker is missing gloves but wears helmet -> no gloves box or alert."""
+    session_state = new_session_state()
+    detections = [
+        {"label": "person", "conf": 0.90, "box": (0.2, 0.1, 0.8, 0.9), "_track_id": 1},
+        {"label": "helmet", "conf": 0.88, "box": (0.38, 0.08, 0.62, 0.25), "_track_id": 1},
+        {"label": "no-gloves", "conf": 0.90, "box": (0.2, 0.5, 0.35, 0.7), "_track_id": 1},
+    ]
+
+    for t in [0.0, 0.5, 1.0, 1.5, 2.0, 2.5]:
+        severity, violations, worker_violations = evaluate_compliance(
+            detections=detections,
+            worker_states=session_state,
+            now=t,
+            required_ppe=frozenset({"helmet"}),  # Gloves NOT required
+        )
+
+    assert severity == "ok"
+    assert len(violations) == 0
+    assert len(worker_violations) == 0
+
+    visible_overlay = format_detections_for_overlay(detections, violations_only=True)
+    assert len(visible_overlay) == 0
+
+
+def test_scenario_d_zone_has_no_required_ppe():
+    """Scenario D: Zone has no required PPE -> no missing-PPE violation boxes or alerts."""
+    session_state = new_session_state()
+    detections = [
+        {"label": "person", "conf": 0.90, "box": (0.2, 0.1, 0.8, 0.9), "_track_id": 1},
+        {"label": "no-helmet", "conf": 0.95, "box": (0.4, 0.1, 0.6, 0.3), "_track_id": 1},
+        {"label": "no-vest", "conf": 0.92, "box": (0.3, 0.3, 0.7, 0.7), "_track_id": 1},
+        {"label": "no-gloves", "conf": 0.90, "box": (0.2, 0.5, 0.35, 0.7), "_track_id": 1},
+    ]
+
+    for t in [0.0, 0.5, 1.0, 1.5, 2.0, 2.5]:
+        severity, violations, worker_violations = evaluate_compliance(
+            detections=detections,
+            worker_states=session_state,
+            now=t,
+            required_ppe=frozenset(),  # 0 required PPE
+        )
+
+    assert severity == "ok"
+    assert len(violations) == 0
+    assert len(worker_violations) == 0
+
+    visible_overlay = format_detections_for_overlay(detections, violations_only=True)
+    assert len(visible_overlay) == 0
+
+
+def test_scenario_e_raw_negative_prediction_fails_confirmation():
+    """Scenario E: Raw no-helmet prediction fails required confidence or temporal criteria -> no violation box or alert."""
+    session_state = new_session_state()
+
+    # Case 1: Sub-threshold confidence (< 0.70)
+    low_conf_detections = [
+        {"label": "person", "conf": 0.90, "box": (0.2, 0.1, 0.8, 0.9), "_track_id": 1},
+        {"label": "no-helmet", "conf": 0.40, "box": (0.4, 0.1, 0.6, 0.3), "_track_id": 1},
+    ]
+    severity, violations, worker_violations = evaluate_compliance(
+        detections=low_conf_detections,
+        worker_states=session_state,
+        now=0.0,
+        required_ppe=frozenset({"helmet"}),
+        min_confidence=0.70,
+    )
+    assert severity == "ok"
+    assert len(violations) == 0
+    assert len(worker_violations) == 0
+    assert len(format_detections_for_overlay(low_conf_detections, violations_only=True)) == 0
+
+    # Case 2: High confidence but single-frame transient (fails temporal criteria < 2.0s and < 2 samples)
+    session_state_2 = new_session_state()
+    high_conf_detections = [
+        {"label": "person", "conf": 0.90, "box": (0.2, 0.1, 0.8, 0.9), "_track_id": 2},
+        {"label": "no-helmet", "conf": 0.90, "box": (0.4, 0.1, 0.6, 0.3), "_track_id": 2},
+    ]
+    severity_2, violations_2, worker_violations_2 = evaluate_compliance(
+        detections=high_conf_detections,
+        worker_states=session_state_2,
+        now=0.0,  # Only first frame
+        required_ppe=frozenset({"helmet"}),
+        min_confidence=0.70,
+    )
+    assert severity_2 == "ok"
+    assert len(violations_2) == 0
+    assert len(worker_violations_2) == 0
+    assert len(format_detections_for_overlay(high_conf_detections, violations_only=True)) == 0
+
+
+def test_scenario_f_worker_with_one_violation_and_compliant_ppe():
+    """Scenario F: Worker has one confirmed violation and other compliant PPE -> only violation is red; compliant PPE and person remain invisible."""
+    session_state = new_session_state()
+    detections = [
+        {"label": "person", "conf": 0.95, "box": (0.2, 0.1, 0.8, 0.9), "_track_id": 1},
+        {"label": "helmet", "conf": 0.89, "box": (0.38, 0.08, 0.62, 0.25), "_track_id": 1},
+        {"label": "vest", "conf": 0.88, "box": (0.3, 0.3, 0.7, 0.7), "_track_id": 1},
+        {"label": "no-gloves", "conf": 0.84, "box": (0.2, 0.5, 0.35, 0.7), "_track_id": 1},
+    ]
+
+    for t in [0.0, 0.5, 1.0, 1.5, 2.0, 2.5]:
+        severity, violations, worker_violations = evaluate_compliance(
+            detections=detections,
+            worker_states=session_state,
+            now=t,
+            required_ppe=frozenset({"helmet", "vest", "gloves"}),
+        )
+
+    # 1. Internal evaluation confirmed violation
+    assert "no-hands-protection" in violations
+
+    # 2. In user-facing overlay: ONLY the confirmed missing-gloves is included
+    visible_overlay = format_detections_for_overlay(detections, violations_only=True)
+    assert len(visible_overlay) == 1
+    assert visible_overlay[0]["label"] == "No Gloves"
+    assert visible_overlay[0]["color"] == "#FF3333"
+    assert visible_overlay[0]["compliant"] is False
+
+    # 3. Non-violation items (person, helmet, vest) are NOT in the overlay
+    overlay_labels = [d["label"] for d in visible_overlay]
+    assert "Person" not in overlay_labels
+    assert "Helmet" not in overlay_labels
+    assert "Vest" not in overlay_labels
+
+
+@pytest.mark.asyncio
+async def test_scenario_g_uc3_disabled_by_effective_analytics():
+    """Scenario G: UC3 is disabled by effective analytics configuration -> no violation results or alerts generated."""
+    cam_id = uuid4()
+
+    def query_handler(stmt, params):
+        if "camera_effective_analytics" in stmt:
+            # UC3 analytic is explicitly NOT active
+            return MockResult(MockRow(is_active=False))
+        if "FROM cameras WHERE id = :id" in stmt:
+            return MockResult(MockRow(
+                id=cam_id,
+                organization_id=uuid4(),
+                zone_id=uuid4(),
+                use_cases=["uc1"],  # UC3 not in use_cases
+                metadata={"disabled_uc": {"uc3": True}},
+            ))
+        return MockResult()
+
+    publisher = UC3EventPublisher.__new__(UC3EventPublisher)
+    publisher._sessionmaker = lambda: MockAsyncSession(query_handler)
+
+    is_enabled = await publisher.is_camera_uc3_enabled(str(cam_id))
+    assert is_enabled is False
+
+
+def test_scenario_h_uploaded_video_session_isolation():
+    """Scenario H: Uploaded-video session isolation -> boxes belong strictly to camera and session without leakage."""
+    manager = UC3ConsumerManager.__new__(UC3ConsumerManager)
+    manager.latest_detections = {}
+
+    cam_id = "test-cam-001"
+    session_upload_1 = "upload-session-aaa"
+    session_upload_2 = "upload-session-bbb"
+
+    # Simulate live RTSP detection
+    manager.latest_detections[cam_id] = {
+        "camera_id": cam_id,
+        "session_id": None,
+        "source_type": "live_rtsp",
+        "detections": [{"label": "No Helmet", "color": "#FF3333", "compliant": False}],
+    }
+
+    # Simulate uploaded video session 1 (clean, compliant)
+    manager.latest_detections[f"{cam_id}:{session_upload_1}"] = {
+        "camera_id": cam_id,
+        "session_id": session_upload_1,
+        "source_type": "uploaded_video",
+        "detections": [],
+    }
+
+    # Simulate uploaded video session 2 (missing gloves)
+    manager.latest_detections[f"{cam_id}:{session_upload_2}"] = {
+        "camera_id": cam_id,
+        "session_id": session_upload_2,
+        "source_type": "uploaded_video",
+        "detections": [{"label": "No Gloves", "color": "#FF3333", "compliant": False}],
+    }
+
+    # Verify query for session 1 gets session 1, never live RTSP or session 2
+    res_1 = manager.get_latest_detections(cam_id, session_upload_1)
+    assert res_1["session_id"] == session_upload_1
+    assert len(res_1["detections"]) == 0
+
+    # Verify query for session 2 gets session 2
+    res_2 = manager.get_latest_detections(cam_id, session_upload_2)
+    assert res_2["session_id"] == session_upload_2
+    assert len(res_2["detections"]) == 1
+    assert res_2["detections"][0]["label"] == "No Gloves"
+
+    # Verify query for non-existent session returns None (router returns empty, never live)
+    res_unknown = manager.get_latest_detections(cam_id, "unknown-session")
+    assert res_unknown is None
+
+    # Verify live RTSP query gets live RTSP
+    res_live = manager.get_latest_detections(cam_id, None)
+    assert res_live["session_id"] is None
+    assert len(res_live["detections"]) == 1
+    assert res_live["detections"][0]["label"] == "No Helmet"
+
+
+def test_scenario_i_regression_checks():
+    """Scenario I: Regression checks -> tracking, deduplication, alert contract, and non-violation data models remain intact."""
+    session_state = new_session_state()
+
+    detections = [
+        {"label": "person", "conf": 0.90, "box": (0.2, 0.1, 0.8, 0.9), "_track_id": 42},
+        {"label": "no-helmet", "conf": 0.85, "box": (0.4, 0.1, 0.6, 0.3), "_track_id": 42},
+    ]
+
+    total_worker_alerts = 0
+    for t in [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5]:
+        _, _, worker_violations = evaluate_compliance(
+            detections=detections,
+            worker_states=session_state,
+            now=t,
+            required_ppe=frozenset({"helmet"}),
+        )
+        total_worker_alerts += len(worker_violations)
+
+    # Deduplication check: alert only created once on state transition
+    assert total_worker_alerts == 1
+
+    # Overlay format check
+    overlay = format_detections_for_overlay(detections, violations_only=True)
+    assert len(overlay) == 1
+    assert overlay[0]["track_id"] == 42
+    assert overlay[0]["color"] == "#FF3333"
+    assert overlay[0]["compliant"] is False
+    assert overlay[0]["is_violation"] is True
 

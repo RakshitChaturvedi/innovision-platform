@@ -73,23 +73,32 @@ def get_class_color(label: str, is_compliant: bool = True) -> str:
         return "#94A3B8"
     return CLASS_COLORS.get(norm_lbl, "#94A3B8")
 
-def format_detections_for_overlay(raw_detections: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def format_detections_for_overlay(
+    raw_detections: List[Dict[str, Any]],
+    violations_only: bool = False,
+) -> List[Dict[str, Any]]:
     formatted: List[Dict[str, Any]] = []
     for d in raw_detections:
-        norm_b = d["box"]
-        lbl = d["label"]
         comp = d.get("compliant", True)
+        is_vio = d.get("is_violation", not comp)
+        if violations_only and (comp or not is_vio):
+            continue
+        norm_b = d["box"]
+        lbl = d.get("violation_label") or d["label"]
+        color = "#FF3333" if not comp else get_class_color(d["label"], comp)
+        display_label = d.get("violation_label") or lbl.replace("-", " ").title()
         formatted.append({
             "track_id": d.get("_track_id"),
-            "label": lbl.replace("-", " ").title(),
+            "label": display_label,
             "bbox": {
                 "x1": norm_b[0],
                 "y1": norm_b[1],
                 "x2": norm_b[2],
                 "y2": norm_b[3],
             },
-            "color": get_class_color(lbl, comp),
+            "color": color,
             "compliant": comp,
+            "is_violation": is_vio,
             "confidence": round(d["conf"], 2),
         })
     return formatted
@@ -260,10 +269,38 @@ class UC3ConsumerManager:
         except Exception as e:
             logger.error("consume_stream_failed stream=%s error=%s", stream_key, e)
 
+    def get_latest_detections(self, camera_id: str, session_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        if session_id:
+            return self.latest_detections.get(f"{camera_id}:{session_id}")
+        return self.latest_detections.get(camera_id)
+
     async def _process_frame_event(self, frame_event: FrameEvent) -> None:
         camera_id = str(frame_event.camera_id)
         now_ts = time.monotonic()
         dt_now = datetime.now(timezone.utc)
+        session_id = str(frame_event.session_id) if getattr(frame_event, "session_id", None) else None
+        state_key = f"{camera_id}:{session_id}" if session_id else camera_id
+        cache_key = f"{camera_id}:{session_id}" if session_id else camera_id
+
+        # Entitlement check: if UC3 is not enabled under effective analytics, do not process or alert
+        is_uc3_enabled = await self._publisher.is_camera_uc3_enabled(camera_id)
+        if not is_uc3_enabled:
+            logger.info("uc3_disabled_by_effective_analytics camera_id=%s session_id=%s", camera_id, session_id)
+            empty_payload = {
+                "timestamp": dt_now.isoformat(),
+                "camera_id": camera_id,
+                "source_type": getattr(frame_event, "source_type", "uploaded_video" if session_id else "live_rtsp"),
+                "session_id": session_id,
+                "detections": [],
+                "severity": "ok",
+                "violations": [],
+                "violations_only": True,
+                "zone": None,
+            }
+            self.latest_detections[cache_key] = empty_payload
+            if not session_id:
+                self.latest_detections[camera_id] = empty_payload
+            return
 
         jpeg_bytes = await self._load_frame_bytes(frame_event)
         if not jpeg_bytes:
@@ -275,14 +312,14 @@ class UC3ConsumerManager:
 
         h, w = frame.shape[:2]
 
-        # Init per-camera state
-        if camera_id not in self._worker_states:
-            self._worker_states[camera_id] = new_session_state()
-        if camera_id not in self._motion_states:
-            self._motion_states[camera_id] = MotionState()
+        # Init per-camera / per-session state
+        if state_key not in self._worker_states:
+            self._worker_states[state_key] = new_session_state()
+        if state_key not in self._motion_states:
+            self._motion_states[state_key] = MotionState()
 
-        m_state = self._motion_states[camera_id]
-        w_state = self._worker_states[camera_id]
+        m_state = self._motion_states[state_key]
+        w_state = self._worker_states[state_key]
 
         # Stage 1: Person Gate & Motion Gate
         candidate_boxes = await asyncio.to_thread(detect_persons, frame)
@@ -359,17 +396,18 @@ class UC3ConsumerManager:
             min_confidence=min_confidence,
         )
 
-        # Format detection state for API overlay
-        formatted_detections = format_detections_for_overlay(raw_detections)
+        # Format detection state for API overlay (strictly confirmed violations only)
+        formatted_detections = format_detections_for_overlay(raw_detections, violations_only=True)
 
-        self.latest_detections[camera_id] = {
+        payload = {
             "timestamp": dt_now.isoformat(),
             "camera_id": camera_id,
-            "source_type": getattr(frame_event, "source_type", "live_rtsp"),
-            "session_id": str(frame_event.session_id) if getattr(frame_event, "session_id", None) else None,
+            "source_type": getattr(frame_event, "source_type", "uploaded_video" if session_id else "live_rtsp"),
+            "session_id": session_id,
             "detections": formatted_detections,
             "severity": severity,
             "violations": unique_vio,
+            "violations_only": True,
             "zone": {
                 "id": str(zone_id) if zone_id else None,
                 "name": zone_name,
@@ -377,6 +415,9 @@ class UC3ConsumerManager:
                 "min_confidence": min_confidence,
             },
         }
+        self.latest_detections[cache_key] = payload
+        if not session_id:
+            self.latest_detections[camera_id] = payload
         self.last_frame_processed_at = now_ts
 
         # Stage 5: Persist UC3 Analytics Event & Publish Alerts

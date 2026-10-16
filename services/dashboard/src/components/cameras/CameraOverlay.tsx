@@ -12,6 +12,8 @@ export interface DetectionItem {
   bbox: DetectionBBox;
   label: string;
   color?: string;
+  compliant?: boolean;
+  is_violation?: boolean;
   metadata?: Record<string, unknown>;
 }
 
@@ -226,7 +228,45 @@ export default function CameraOverlay({
     for (const det of detections) {
       if (!det.bbox) continue;
 
-      const { bbox, label, color = "#00FF00" } = det;
+      const normLabel = (det.label || "").toLowerCase();
+      const isCompliant = det.compliant === true;
+      const isExplicitViolation = det.is_violation === true || det.compliant === false;
+      const isRedColor = det.color?.toUpperCase() === "#FF3333";
+
+      // 1. Explicitly compliant items are never rendered
+      if (isCompliant) {
+        continue;
+      }
+
+      // 2. Identify PPE-related classes
+      const isPpeClass =
+        normLabel.includes("helmet") ||
+        normLabel.includes("vest") ||
+        normLabel.includes("glove") ||
+        normLabel.includes("shoe") ||
+        normLabel.includes("boot") ||
+        normLabel.includes("glass") ||
+        normLabel.includes("goggle") ||
+        normLabel.includes("mask") ||
+        normLabel.includes("suit") ||
+        normLabel.includes("head") ||
+        normLabel.includes("hand") ||
+        normLabel.includes("foot") ||
+        normLabel.includes("face");
+
+      const isPersonClass = normLabel === "person" || normLabel === "worker";
+
+      // 3. For PPE items: ONLY render if confirmed violation (red color / is_violation / compliant === false)
+      if (isPpeClass && !isExplicitViolation && !isRedColor) {
+        continue;
+      }
+
+      // 4. Normal person detections: do not render ordinary person box
+      if (isPersonClass && !isExplicitViolation && !isRedColor) {
+        continue;
+      }
+
+      const { bbox, label, color = "#FF3333" } = det;
       // Coordinates normalized 0.0 to 1.0 mapped onto actual displayed video area with letterbox offset
       const x = Math.max(offsetX, Math.min(offsetX + displayedW, offsetX + bbox.x1 * displayedW));
       const y = Math.max(offsetY, Math.min(offsetY + displayedH, offsetY + bbox.y1 * displayedH));
