@@ -344,6 +344,7 @@ class UC3ConsumerManager:
             tracker=config.TRACKER_CONFIG_PATH if os.path.exists(config.TRACKER_CONFIG_PATH) else "bytetrack.yaml",
             conf=config.CONF_THRESHOLD,
             imgsz=config.IMAGE_SIZE,
+            device=config.DEVICE,
             verbose=False,
         )
 

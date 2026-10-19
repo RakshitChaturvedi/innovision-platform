@@ -1,0 +1,48 @@
+# GPU deployment overlay for NVIDIA Container Toolkit
+# Usage:
+#   docker compose -f infra/docker-compose.yml -f infra/docker-compose.gpu.yml up -d
+
+services:
+  uc1_v2:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      UC1_DEVICE: cuda
+
+  uc2:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      UC2_DEVICE: cuda
+
+  uc3:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      PPE_DEVICE: cuda
+
+  uc4:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      UC4_DEVICE: cuda

@@ -8,6 +8,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import torch
+
 def _float(key: str, default: float) -> float:
     return float(os.environ.get(key, default))
 
@@ -19,6 +21,9 @@ def _bool(key: str, default: bool) -> bool:
     if v is None:
         return default
     return v.lower() in ("1", "true", "yes")
+
+# ── Device & Hardware ─────────────────────────────────────────────────────────
+DEVICE: str = os.environ.get("PPE_DEVICE", "cuda" if torch.cuda.is_available() else "cpu")
 
 # ── Inference ──────────────────────────────────────────────────────────────────
 CONF_THRESHOLD: float = _float("PPE_CONF_THRESHOLD", 0.35)

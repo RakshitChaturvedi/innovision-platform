@@ -359,6 +359,73 @@ services:
       - ../services/uc3:/app/services/uc3
     restart: unless-stopped
 
+  uc1_v2:
+    build:
+      context: ..
+      dockerfile: stubs/uc1_v2/Dockerfile
+    container_name: innovision_uc1
+    env_file: ../.env
+    ports:
+      - "8021:8021"
+    environment:
+      REDIS_URL: redis://redis:6379
+      CAMERA_REGISTRY_URL: http://camera_registry:8011
+      TEST_CAMERA_ID: "00000000-0000-0000-0000-000000000001"
+      REDIS_CONSUMER_GROUP: uc1_v2_group
+      REDIS_CONSUMER_NAME: uc1_v2_worker_1
+      YOLO_MODEL: yolov8n.pt
+      YOLO_CONFIDENCE: "0.35"
+    depends_on:
+      redis: { condition: service_healthy }
+      ingestion: { condition: service_healthy }
+    restart: unless-stopped
+
+  uc2:
+    build:
+      context: ..
+      dockerfile: stubs/uc2_stub/Dockerfile
+    container_name: innovision_uc2
+    env_file: ../.env
+    ports:
+      - "8022:8022"
+    environment:
+      REDIS_URL: redis://redis:6379
+      CAMERA_REGISTRY_URL: http://camera_registry:8011
+      REDIS_CONSUMER_GROUP: uc2_group
+      REDIS_CONSUMER_NAME: uc2_worker_1
+      UC2_DEVICE: ${UC2_DEVICE:-auto}
+      UC2_CONF_THRESHOLD: "0.20"
+      UC2_TEMPORAL_FRAMES: "3"
+      UC2_ALERT_COOLDOWN_S: "30"
+    depends_on:
+      redis: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+    restart: unless-stopped
+
+  uc4:
+    build:
+      context: ..
+      dockerfile: stubs/uc4_stub/Dockerfile
+    container_name: innovision_uc4
+    env_file: ../.env
+    ports:
+      - "8024:8024"
+    environment:
+      REDIS_URL: redis://redis:6379
+      CAMERA_REGISTRY_URL: http://camera_registry:8011
+      UC4_DATABASE_URL: ${DATABASE_URL}
+      SPEED_LIMIT_KMH: "2"
+      ANPR_CONSENSUS_MIN: "1"
+      REDIS_CONSUMER_GROUP: uc4_group
+      REDIS_CONSUMER_NAME: uc4_worker_1
+      FLAGS_use_mkldnn: "0"
+      PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT: "0"
+      FLAGS_use_onednn: "0"
+    depends_on:
+      redis: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:

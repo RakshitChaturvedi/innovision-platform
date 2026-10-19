@@ -30,6 +30,7 @@ from fastapi import FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from redis.exceptions import ResponseError
+import torch
 from ultralytics import YOLO
 
 # Ensure repository root and /app are on python search path for shared packages
@@ -61,6 +62,7 @@ REDIS_CONSUMER_NAME = os.getenv("REDIS_CONSUMER_NAME", "uc1_v2_worker_1")
 
 MODEL_PATH = os.getenv("YOLO_MODEL", "yolov8n.pt")
 CONFIDENCE = float(os.getenv("YOLO_CONFIDENCE", "0.35"))
+DEVICE = os.getenv("UC1_DEVICE", "cuda" if torch.cuda.is_available() else "cpu")
 
 ALERTS_STREAM = "alerts:live"
 PEOPLE_THRESHOLD = int(os.getenv("PEOPLE_THRESHOLD", "3"))
@@ -374,6 +376,7 @@ def detect_people_and_intrusions(
         frame,
         conf=CONFIDENCE,
         classes=[0],  # class 0 = person in standard COCO / YOLO
+        device=DEVICE,
         verbose=False,
     )
 

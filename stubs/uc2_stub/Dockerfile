@@ -7,12 +7,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Install torch CPU-only FIRST — pinned so ultralytics doesn't re-resolve
-# a GPU build. Must come before any package that depends on torch.
+ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir --timeout 60 --retries 10 \
     torch==2.5.1 \
     torchvision==0.20.1 \
-    --index-url https://download.pytorch.org/whl/cpu
+    --index-url ${TORCH_INDEX_URL}
 
 # Install remaining Python dependencies (torch already satisfied from above)
 RUN pip install --no-cache-dir --timeout 60 --retries 10 \

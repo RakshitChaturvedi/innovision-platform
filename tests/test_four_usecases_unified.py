@@ -272,13 +272,13 @@ class TestPipelineFailureIsolation:
         # Mock responses: UC1, UC2, UC4 succeed, UC3 simulates temporary 503 error
         async def mock_handler(request: httpx.Request):
             url_str = str(request.url)
-            if "8023" in url_str:
+            if ":8023" in url_str:
                 return httpx.Response(503, json={"detail": "Model loading error"})
-            elif "8021" in url_str:
+            elif ":8021" in url_str:
                 return httpx.Response(200, json={"status": "success", "use_case": "uc1", "detections": []})
-            elif "8022" in url_str:
+            elif ":8022" in url_str:
                 return httpx.Response(200, json={"status": "success", "use_case": "uc2", "detections": []})
-            elif "8024" in url_str:
+            elif ":8024" in url_str:
                 return httpx.Response(200, json={"status": "success", "use_case": "uc4", "detections": []})
             return httpx.Response(404)
 

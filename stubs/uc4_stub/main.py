@@ -119,7 +119,7 @@ def _load_models():
 
             if torch.cuda.is_available() and os.path.exists("yolo11m.engine"):
                 _yolo_model = YOLO("yolo11m.engine", task="detect")
-            elif torch.cuda.is_available():
+            elif torch.cuda.is_available() and os.path.exists("yolo11m.pt"):
                 _yolo_model = YOLO("yolo11m.pt")
             else:
                 _yolo_model = YOLO("yolo11n.pt")
