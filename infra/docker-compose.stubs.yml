@@ -55,7 +55,8 @@ services:
       - "8021:8021"
     environment:
       REDIS_URL: redis://redis:6379
-      TEST_CAMERA_ID: 00000000-0000-0000-0000-000000000001
+      CAMERA_REGISTRY_URL: http://camera_registry:8011
+      TEST_CAMERA_ID: "00000000-0000-0000-0000-000000000001"
       REDIS_CONSUMER_GROUP: uc1_v2_group
       REDIS_CONSUMER_NAME: uc1_v2_worker_1
       YOLO_MODEL: yolov8n.pt
@@ -65,4 +66,10 @@ services:
         condition: service_healthy
       ingestion:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8021/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     restart: unless-stopped

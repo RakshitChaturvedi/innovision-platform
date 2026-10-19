@@ -105,6 +105,7 @@ function resolveEndpoints(cameraId: string, useCases: string[] = [], sessionId?:
 
   // If no matching use case tag provided or list empty, poll candidate services
   if (urls.length === 0) {
+    urls.push(`${UC1_API_URL}/uc1/cameras/${cameraId}/latest-detections${queryParam}`);
     urls.push(`${UC3_API_URL}/uc3/cameras/${cameraId}/latest-detections${queryParam}`);
     urls.push(`${UC2_API_URL}/uc2/cameras/${cameraId}/latest-detections${queryParam}`);
     urls.push(`${UC4_API_URL}/uc4/cameras/${cameraId}/latest-detections${queryParam}`);
@@ -123,12 +124,14 @@ export default function CameraOverlay({
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const detectionsRef = useRef<DetectionItem[]>([]);
+  const zonesRef = useRef<any[]>([]);
   const [, setTick] = useState(0);
 
   // Poll latest-detections at ~10 FPS (every 100ms)
   useEffect(() => {
     if (!isOnline || !cameraId) {
       detectionsRef.current = [];
+      zonesRef.current = [];
       return;
     }
 
@@ -151,13 +154,20 @@ export default function CameraOverlay({
         if (!isMounted) return;
 
         const mergedDetections: DetectionItem[] = [];
+        const mergedZones: any[] = [];
         for (const r of results) {
-          if (r.status === "fulfilled" && r.value?.detections) {
-            mergedDetections.push(...r.value.detections);
+          if (r.status === "fulfilled" && r.value) {
+            if (r.value.detections) {
+              mergedDetections.push(...r.value.detections);
+            }
+            if (r.value.zones && Array.isArray(r.value.zones)) {
+              mergedZones.push(...r.value.zones);
+            }
           }
         }
 
         detectionsRef.current = mergedDetections;
+        zonesRef.current = mergedZones;
         setTick((t) => (t + 1) % 10000);
       } catch {
         // Ignore aborted or network poll errors silently
@@ -220,6 +230,53 @@ export default function CameraOverlay({
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, width, height);
 
+    // 1. Render zone polygons if defined
+    const zones = zonesRef.current;
+    if (zones && zones.length > 0) {
+      for (const zone of zones) {
+        if (!zone.polygon || !Array.isArray(zone.polygon) || zone.polygon.length < 3) continue;
+        const zoneColor = zone.color || (zone.priority === "CRITICAL" ? "#EF4444" : "#F59E0B");
+        ctx.beginPath();
+        let first = true;
+        for (const pt of zone.polygon) {
+          const px = Array.isArray(pt) ? pt[0] : (pt as any).x;
+          const py = Array.isArray(pt) ? pt[1] : (pt as any).y;
+          const canvasX = px <= 1.0 ? offsetX + px * displayedW : offsetX + (px / sourceW) * displayedW;
+          const canvasY = py <= 1.0 ? offsetY + py * displayedH : offsetY + (py / sourceH) * displayedH;
+          if (first) {
+            ctx.moveTo(canvasX, canvasY);
+            first = false;
+          } else {
+            ctx.lineTo(canvasX, canvasY);
+          }
+        }
+        ctx.closePath();
+        ctx.fillStyle = parseHexToRgba(zoneColor, 0.08);
+        ctx.fill();
+        ctx.setLineDash([6, 4]);
+        ctx.strokeStyle = zoneColor;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Zone name badge
+        if (zone.zone_name) {
+          const firstPt = zone.polygon[0];
+          const fX = Array.isArray(firstPt) ? firstPt[0] : (firstPt as any).x;
+          const fY = Array.isArray(firstPt) ? firstPt[1] : (firstPt as any).y;
+          const badgeX = fX <= 1.0 ? offsetX + fX * displayedW : offsetX + (fX / sourceW) * displayedW;
+          const badgeY = fY <= 1.0 ? offsetY + fY * displayedH : offsetY + (fY / sourceH) * displayedH;
+          const label = String(zone.zone_name).toUpperCase();
+          ctx.font = "bold 10px Inter, system-ui, sans-serif";
+          const bMetric = ctx.measureText(label);
+          ctx.fillStyle = parseHexToRgba(zoneColor, 0.85);
+          ctx.fillRect(badgeX, Math.max(offsetY, badgeY - 16), bMetric.width + 8, 16);
+          ctx.fillStyle = "#FFFFFF";
+          ctx.fillText(label, badgeX + 4, Math.max(offsetY, badgeY - 16) + 12);
+        }
+      }
+    }
+
     const detections = detectionsRef.current;
     if (!detections || detections.length === 0) {
       return;
@@ -254,14 +311,18 @@ export default function CameraOverlay({
         normLabel.includes("foot") ||
         normLabel.includes("face");
 
-      const isPersonClass = normLabel === "person" || normLabel === "worker";
+      const isPersonClass =
+        normLabel === "person" ||
+        normLabel === "worker" ||
+        normLabel.startsWith("person") ||
+        normLabel.startsWith("worker");
 
       // 3. For PPE items: ONLY render if confirmed violation (red color / is_violation / compliant === false)
       if (isPpeClass && !isExplicitViolation && !isRedColor) {
         continue;
       }
 
-      // 4. Normal person detections: do not render ordinary person box
+      // 4. Normal person detections: do not render ordinary person box unless it's a zone intrusion violation
       if (isPersonClass && !isExplicitViolation && !isRedColor) {
         continue;
       }
