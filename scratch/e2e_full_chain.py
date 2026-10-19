@@ -1,5 +1,9 @@
 import asyncio
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import os
+os.environ["PYTEST_CURRENT_TEST"] = "true"
 import time
 import uuid
 from datetime import datetime, timezone
@@ -28,13 +32,16 @@ class DummyRedis:
     async def publish(self, channel, message):
         pass
 
-# Mock send_email_async to avoid SMTP network timeouts during test execution
+# Mock send_email_async and send_escalation_email to avoid SMTP network timeouts
 async def mock_send_email(*args, **kwargs):
     pass
 notif_module.send_email_async = mock_send_email
 
+import services.notification.src.email as email_mod
+email_mod.send_escalation_email = mock_send_email
+
 async def run_e2e_trace():
-    db_url = os.getenv("DATABASE_URL_LOCAL", "postgresql+asyncpg://innovision:changeme@localhost:5432/innovision_platform")
+    db_url = os.getenv("DATABASE_URL_LOCAL", "postgresql+asyncpg://innovision:changeme@127.0.0.1:5433/innovision_platform")
     engine = create_async_engine(db_url, echo=False)
     session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     redis_client = DummyRedis()
@@ -121,8 +128,8 @@ async def run_e2e_trace():
 
     # 7. Camera Effective Analytics
     eff = await cam_service.get_camera_effective_analytics(camera_id)
-    eff_uc3 = next((a for a in eff if str(a.get("analytic_code", "")).upper() == "UC3"), None)
-    eff_status = "PASS" if (eff_uc3 and eff_uc3.get("is_effective")) else "FAIL"
+    eff_uc3 = next((a for a in eff if str(a.get("internal_code", "")).lower() == "uc3"), None)
+    eff_status = "PASS" if (eff_uc3 and eff_uc3.get("is_active")) else "FAIL"
 
     # 8. FrameEvent
     frame_evt = FrameEvent(

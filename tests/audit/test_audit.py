@@ -20,9 +20,9 @@ class DummyRedis:
 
 @pytest_asyncio.fixture
 async def session_factory():
-    db_url = os.getenv("DATABASE_URL_LOCAL", "postgresql+asyncpg://innovision:changeme@localhost:5432/innovision_platform")
+    db_url = os.getenv("DATABASE_URL_LOCAL", "postgresql+asyncpg://innovision:changeme@localhost:5433/innovision_platform")
     if "@postgres:5432" in db_url:
-        db_url = db_url.replace("@postgres:5432", "@localhost:5432")
+        db_url = db_url.replace("@postgres:5432", "@localhost:5433")
 
     engine = create_async_engine(db_url, echo=False)
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
