@@ -44,8 +44,8 @@ async def list_alerts(
         if user_role not in (Role.ADMIN, Role.ORG_ADMIN):
             camera_ids = user.get("camera_ids", [])
             if camera_ids:
-                conditions.append("a.camera_id = ANY(:allowed_cameras)")
-                params["allowed_cameras"] = camera_ids
+                conditions.append("a.camera_id::text = ANY(:allowed_cameras)")
+                params["allowed_cameras"] = [str(c) for c in camera_ids]
 
     if source_uc:
         conditions.append("a.source_uc = :source_uc"); params["source_uc"] = source_uc
@@ -54,7 +54,7 @@ async def list_alerts(
     if status:
         conditions.append("a.status = :status"); params["status"] = status
     if camera_id:
-        conditions.append("a.camera_id = :camera_id"); params["camera_id"] = camera_id
+        conditions.append("a.camera_id::text = :camera_id"); params["camera_id"] = str(camera_id)
 
     join_clause = "LEFT JOIN cameras c ON a.camera_id = c.id" if join_cameras else ""
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
@@ -166,8 +166,8 @@ async def unacknowledged(user: dict = Depends(get_current_user), db: AsyncSessio
         if user_role not in (Role.ADMIN, Role.ORG_ADMIN):
             camera_ids = user.get("camera_ids", [])
             if camera_ids:
-                conditions.append("a.camera_id = ANY(:camera_ids)")
-                params["camera_ids"] = camera_ids
+                conditions.append("a.camera_id::text = ANY(:camera_ids)")
+                params["camera_ids"] = [str(c) for c in camera_ids]
 
     join_clause = "LEFT JOIN cameras c ON a.camera_id = c.id" if join_cameras else ""
     where = f"WHERE {' AND '.join(conditions)}"
@@ -197,8 +197,8 @@ async def count(user: dict = Depends(get_current_user), db: AsyncSession = Depen
         if user_role not in (Role.ADMIN, Role.ORG_ADMIN):
             camera_ids = user.get("camera_ids", [])
             if camera_ids:
-                conditions.append("a.camera_id = ANY(:camera_ids)")
-                params["camera_ids"] = camera_ids
+                conditions.append("a.camera_id::text = ANY(:camera_ids)")
+                params["camera_ids"] = [str(c) for c in camera_ids]
 
     join_clause = "LEFT JOIN cameras c ON a.camera_id = c.id" if join_cameras else ""
     where = f"WHERE {' AND '.join(conditions)}"

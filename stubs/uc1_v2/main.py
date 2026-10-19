@@ -288,15 +288,16 @@ async def maybe_fire_alerts(
                 },
             )
 
-            payload = alert.model_dump_json()
-            await redis_client.xadd(ALERTS_STREAM, {"data": payload})
-            pipeline_state["stage_alert_published"] = "active"
-            pipeline_state["last_alert_id"] = str(alert_id)
-            pipeline_state["last_alert_at"] = time.time()
-            logger.warning(
-                "uc1_intrusion_alert_published alert_id=%s camera_id=%s zone=%s intruders=%d",
-                alert_id, camera_id, zone_name, len(intruders),
-            )
+            publisher = AlertPublisher(redis_client)
+            published = await publisher.publish(alert)
+            if published:
+                pipeline_state["stage_alert_published"] = "active"
+                pipeline_state["last_alert_id"] = str(alert_id)
+                pipeline_state["last_alert_at"] = time.time()
+                logger.warning(
+                    "uc1_intrusion_alert_published alert_id=%s camera_id=%s zone=%s intruders=%d",
+                    alert_id, camera_id, zone_name, len(intruders),
+                )
         return
 
     # 2. Fallback: Headcount threshold check if no polygon intrusions occurred
@@ -345,15 +346,16 @@ async def maybe_fire_alerts(
             },
         )
 
-        payload = alert.model_dump_json()
-        await redis_client.xadd(ALERTS_STREAM, {"data": payload})
-        pipeline_state["stage_alert_published"] = "active"
-        pipeline_state["last_alert_id"] = str(alert_id)
-        pipeline_state["last_alert_at"] = time.time()
-        logger.warning(
-            "uc1_headcount_alert_published alert_id=%s camera_id=%s people=%d",
-            alert_id, camera_id, people_count,
-        )
+        publisher = AlertPublisher(redis_client)
+        published = await publisher.publish(alert)
+        if published:
+            pipeline_state["stage_alert_published"] = "active"
+            pipeline_state["last_alert_id"] = str(alert_id)
+            pipeline_state["last_alert_at"] = time.time()
+            logger.warning(
+                "uc1_headcount_alert_published alert_id=%s camera_id=%s people=%d",
+                alert_id, camera_id, people_count,
+            )
 
 
 # ─── Detection & Zone Intrusion Engine ───────────────────────────

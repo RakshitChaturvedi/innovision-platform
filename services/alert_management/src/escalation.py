@@ -1,14 +1,24 @@
-import logging, redis
+import logging
+import redis
 
-from celery import Celery
+try:
+    from celery import Celery
+    celery_app = Celery("alert_escalation", broker=settings.celery_broker_url)
+    _task_deco = celery_app.task
+except ImportError:
+    celery_app = None
+    def _task_deco(*args, **kwargs):
+        def wrapper(fn):
+            fn.apply_async = lambda *a, **kw: None
+            return fn
+        return wrapper
+
 from sqlalchemy import create_engine, text
-
 from .config import settings
 
 logger = logging.getLogger(__name__)
-celery_app = Celery("alert_escalation", broker=settings.celery_broker_url)
 
-@celery_app.task(name="alert_management.escalation_check")
+@_task_deco(name="alert_management.escalation_check")
 def escalation_check(alert_row_id: str, level: int = 1):
     sync_url = settings.database_url.replace("+asyncpg", "")
     engine = create_engine(sync_url)
