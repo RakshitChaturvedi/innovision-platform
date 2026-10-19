@@ -138,6 +138,9 @@ platform_view = {
 # Per-camera alert cooldown.
 _last_alert_fired_at: dict[str, float] = {}
 
+# In-memory latest detections for dashboard overlay polling
+latest_camera_detections: dict[str, dict] = {}
+
 
 # ─── Camera Registry ─────────────────────────────────────────────
 
@@ -430,7 +433,7 @@ async def ensure_consumer_groups(
 def count_people(
     model: YOLO,
     frame: np.ndarray,
-) -> tuple[int, np.ndarray]:
+) -> tuple[int, np.ndarray, list[dict]]:
 
     results = model(
         frame,
@@ -440,11 +443,28 @@ def count_people(
     )
 
     count = 0
+    detections: list[dict] = []
 
     for result in results:
-
         if result.boxes is not None:
             count += len(result.boxes)
+            for idx, box in enumerate(result.boxes):
+                xyxyn = box.xyxyn[0].tolist() if hasattr(box, "xyxyn") and len(box.xyxyn) > 0 else None
+                if xyxyn:
+                    conf = float(box.conf[0]) if hasattr(box, "conf") and len(box.conf) > 0 else 0.5
+                    detections.append({
+                        "track_id": int(idx + 1),
+                        "bbox": {
+                            "x1": round(float(xyxyn[0]), 4),
+                            "y1": round(float(xyxyn[1]), 4),
+                            "x2": round(float(xyxyn[2]), 4),
+                            "y2": round(float(xyxyn[3]), 4),
+                        },
+                        "label": f"Person {int(conf * 100)}%",
+                        "color": "#38BDF8",
+                        "compliant": True,
+                        "metadata": {"confidence": round(conf, 2), "class": "person"},
+                    })
 
     annotated_frame = (
         results[0].plot()
@@ -452,7 +472,7 @@ def count_people(
         else frame
     )
 
-    return count, annotated_frame
+    return count, annotated_frame, detections
 
 
 async def process_message(
@@ -544,10 +564,17 @@ async def process_message(
 
     detection_start = time.perf_counter()
 
-    people, _annotated_frame = count_people(
+    people, _annotated_frame, detections = count_people(
         model,
         frame,
     )
+
+    latest_camera_detections[camera_id] = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "camera_id": camera_id,
+        "detections": detections,
+        "zones": [],
+    }
 
     detection_ms = (
         time.perf_counter()
@@ -800,6 +827,20 @@ app = FastAPI(
 @app.get("/api/latest")
 async def get_latest():
     return latest_result
+
+
+@app.get("/uc1/cameras/{camera_id}/latest-detections")
+@app.get("/cameras/{camera_id}/latest-detections")
+async def get_latest_detections(camera_id: str):
+    data = latest_camera_detections.get(camera_id)
+    if data:
+        return data
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "camera_id": camera_id,
+        "detections": [],
+        "zones": [],
+    }
 
 
 @app.get("/api/pipeline")
