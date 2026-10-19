@@ -9,7 +9,9 @@ import {
   createCameraVideoSessionFromTestFile,
   processCameraVideoSession,
   stopCameraVideoSession,
+  inferCameraImage,
   type VideoSession,
+  type MultiPipelineImageInferenceResponse,
 } from "@/api/cameras";
 import { getCameraHierarchy, getCameraEffectiveAnalytics } from "@/api/platform";
 import { ErrorState } from "@/components/common/ErrorState";
@@ -109,20 +111,29 @@ export default function CameraDetail() {
   const siteName = hierarchy?.site?.name || "Unassigned Site";
   const zoneName = hierarchy?.zone?.name || "Unassigned Zone";
 
+  const [imageInferenceResult, setImageInferenceResult] = useState<MultiPipelineImageInferenceResponse | null>(null);
+  const [isInferringImage, setIsInferringImage] = useState(false);
+  const [imageInferenceError, setImageInferenceError] = useState<string | null>(null);
+
   // File selection validation
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setUploadError(null);
     setActionError(null);
+    setImageInferenceError(null);
     const file = e.target.files?.[0];
     if (!file) {
       setSelectedFile(null);
       return;
     }
 
-    const validExtensions = [".mp4", ".mov", ".avi", ".mkv"];
+    const validVideoExts = [".mp4", ".mov", ".avi", ".mkv"];
+    const validImageExts = [".jpg", ".jpeg", ".png", ".webp"];
     const fileExt = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
-    if (!validExtensions.includes(fileExt)) {
-      setUploadError(`Invalid video format '${fileExt}'. Allowed formats: ${validExtensions.join(", ")}`);
+    const isVideo = validVideoExts.includes(fileExt);
+    const isImage = validImageExts.includes(fileExt);
+
+    if (!isVideo && !isImage) {
+      setUploadError(`Invalid format '${fileExt}'. Allowed formats: ${[...validVideoExts, ...validImageExts].join(", ")}`);
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
@@ -138,6 +149,12 @@ export default function CameraDetail() {
     setSelectedFile(file);
   };
 
+  const isSelectedFileImage = Boolean(
+    selectedFile && [".jpg", ".jpeg", ".png", ".webp"].includes(
+      selectedFile.name.substring(selectedFile.name.lastIndexOf(".")).toLowerCase()
+    )
+  );
+
   const extractError = (err: unknown, fallback: string): string => {
     if (err && typeof err === "object") {
       const resp = (err as { response?: { data?: { detail?: string } }; message?: string });
@@ -145,6 +162,21 @@ export default function CameraDetail() {
       if (resp.message) return resp.message;
     }
     return fallback;
+  };
+
+  // Image inference handler
+  const handleInferImage = async () => {
+    if (!selectedFile) return;
+    setIsInferringImage(true);
+    setImageInferenceError(null);
+    try {
+      const res = await inferCameraImage(cameraId, selectedFile);
+      setImageInferenceResult(res);
+    } catch (err: unknown) {
+      setImageInferenceError(extractError(err, "Failed to run image inference across pipelines."));
+    } finally {
+      setIsInferringImage(false);
+    }
   };
 
   // Upload handler
@@ -401,7 +433,23 @@ export default function CameraDetail() {
           </div>
         )}
 
-        {/* Upload Controls Row */}
+        {imageInferenceError && (
+          <div
+            style={{
+              padding: "10px 14px",
+              background: "var(--danger-bg, rgba(239, 68, 68, 0.15))",
+              color: "var(--danger, #ef4444)",
+              border: "1px solid rgba(239, 68, 68, 0.3)",
+              borderRadius: "6px",
+              fontSize: "12px",
+              marginBottom: "14px",
+            }}
+          >
+            <strong>Image Inference Error:</strong> {imageInferenceError}
+          </div>
+        )}
+
+        {/* Upload & Inference Controls Row */}
         <div
           style={{
             display: "flex",
@@ -418,29 +466,49 @@ export default function CameraDetail() {
           <input
             ref={fileInputRef}
             type="file"
-            accept=".mp4,.mov,.avi,.mkv"
+            accept=".mp4,.mov,.avi,.mkv,.jpg,.jpeg,.png,.webp"
             onChange={handleFileChange}
-            disabled={isSubmitting}
+            disabled={isSubmitting || isInferringImage}
             style={{ fontSize: "13px", color: "var(--text-secondary)" }}
           />
 
-          <button
-            type="button"
-            onClick={handleUpload}
-            disabled={!selectedFile || isSubmitting}
-            style={{
-              padding: "7px 16px",
-              fontSize: "13px",
-              fontWeight: 600,
-              borderRadius: "4px",
-              border: "none",
-              background: selectedFile && !isSubmitting ? "var(--primary, #3b82f6)" : "var(--border)",
-              color: "#ffffff",
-              cursor: selectedFile && !isSubmitting ? "pointer" : "not-allowed",
-            }}
-          >
-            {isSubmitting && uploadProgress !== null ? `Uploading (${uploadProgress}%)...` : "Upload Video"}
-          </button>
+          {isSelectedFileImage ? (
+            <button
+              type="button"
+              onClick={handleInferImage}
+              disabled={isInferringImage}
+              style={{
+                padding: "7px 16px",
+                fontSize: "13px",
+                fontWeight: 600,
+                borderRadius: "4px",
+                border: "none",
+                background: !isInferringImage ? "var(--accent, #8b5cf6)" : "var(--border)",
+                color: "#ffffff",
+                cursor: !isInferringImage ? "pointer" : "not-allowed",
+              }}
+            >
+              {isInferringImage ? "Running 4 Pipelines..." : "Run 4-Pipeline Image Inference"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleUpload}
+              disabled={!selectedFile || isSubmitting}
+              style={{
+                padding: "7px 16px",
+                fontSize: "13px",
+                fontWeight: 600,
+                borderRadius: "4px",
+                border: "none",
+                background: selectedFile && !isSubmitting ? "var(--primary, #3b82f6)" : "var(--border)",
+                color: "#ffffff",
+                cursor: selectedFile && !isSubmitting ? "pointer" : "not-allowed",
+              }}
+            >
+              {isSubmitting && uploadProgress !== null ? `Uploading (${uploadProgress}%)...` : "Upload Video"}
+            </button>
+          )}
 
           {/* Quick Add Server Test Videos */}
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "8px" }}>
@@ -453,7 +521,7 @@ export default function CameraDetail() {
                   e.target.value = "";
                 }
               }}
-              disabled={isSubmitting}
+              disabled={isSubmitting || isInferringImage}
               style={{
                 fontSize: "12px",
                 padding: "5px 8px",
@@ -470,6 +538,127 @@ export default function CameraDetail() {
             </select>
           </div>
         </div>
+
+        {/* 4-Pipeline Image Inference Results Display */}
+        {imageInferenceResult && (
+          <div
+            style={{
+              padding: "16px",
+              background: "rgba(139, 92, 246, 0.05)",
+              border: "1px solid rgba(139, 92, 246, 0.3)",
+              borderRadius: "8px",
+              marginBottom: "20px",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+              <h3 style={{ fontSize: "14px", fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>
+                Unified 4-Pipeline Image Inference Results
+              </h3>
+              <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                {imageInferenceResult.resolution} • {imageInferenceResult.timestamp}
+              </span>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "12px" }}>
+              {/* UC1 Card */}
+              <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "6px", padding: "12px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
+                  <strong style={{ fontSize: "12px", color: "#3b82f6" }}>UC1 Intrusion</strong>
+                  <span style={{ fontSize: "10px", padding: "2px 6px", borderRadius: "3px", background: "rgba(59,130,246,0.1)", color: "#3b82f6" }}>
+                    {imageInferenceResult.results.uc1?.status ?? "N/A"}
+                  </span>
+                </div>
+                <div style={{ fontSize: "11px", color: "var(--text-muted)", marginBottom: "4px" }}>
+                  People: {imageInferenceResult.results.uc1?.detections?.length ?? 0} | Intrusions: {imageInferenceResult.results.uc1?.intrusion_count ?? 0}
+                </div>
+                <div style={{ maxHeight: "80px", overflowY: "auto", fontSize: "11px" }}>
+                  {imageInferenceResult.results.uc1?.detections?.map((d, i: number) => (
+                    <div key={i} style={{ padding: "2px 0", borderBottom: "1px dashed var(--border)" }}>
+                      {d.label} ({(d.confidence * 100).toFixed(0)}%) {d.zone_id ? `[Zone: ${d.zone_id}]` : ""}
+                    </div>
+                  ))}
+                  {(!imageInferenceResult.results.uc1?.detections || imageInferenceResult.results.uc1.detections.length === 0) && (
+                    <span style={{ color: "var(--text-muted)" }}>No persons detected</span>
+                  )}
+                </div>
+              </div>
+
+              {/* UC2 Card */}
+              <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "6px", padding: "12px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
+                  <strong style={{ fontSize: "12px", color: "#f97316" }}>UC2 Fire & Smoke</strong>
+                  <span style={{ fontSize: "10px", padding: "2px 6px", borderRadius: "3px", background: "rgba(249,115,22,0.1)", color: "#f97316" }}>
+                    {imageInferenceResult.results.uc2?.status ?? "N/A"}
+                  </span>
+                </div>
+                <div style={{ fontSize: "11px", color: "var(--text-muted)", marginBottom: "4px" }}>
+                  Verified: {imageInferenceResult.results.uc2?.detections?.length ?? 0} | Candidates: {imageInferenceResult.results.uc2?.candidate_count ?? 0}
+                </div>
+                <div style={{ maxHeight: "80px", overflowY: "auto", fontSize: "11px" }}>
+                  {imageInferenceResult.results.uc2?.detections?.map((d, i: number) => (
+                    <div key={i} style={{ padding: "2px 0", borderBottom: "1px dashed var(--border)" }}>
+                      {d.label} ({(d.confidence * 100).toFixed(0)}%)
+                    </div>
+                  ))}
+                  {(!imageInferenceResult.results.uc2?.detections || imageInferenceResult.results.uc2.detections.length === 0) && (
+                    <span style={{ color: "var(--text-muted)" }}>No fire/smoke hazards</span>
+                  )}
+                </div>
+              </div>
+
+              {/* UC3 Card */}
+              <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "6px", padding: "12px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
+                  <strong style={{ fontSize: "12px", color: "#10b981" }}>UC3 PPE Compliance</strong>
+                  <span style={{ fontSize: "10px", padding: "2px 6px", borderRadius: "3px", background: "rgba(16,185,129,0.1)", color: "#10b981" }}>
+                    {imageInferenceResult.results.uc3?.status ?? "N/A"}
+                  </span>
+                </div>
+                <div style={{ fontSize: "11px", color: "var(--text-muted)", marginBottom: "4px" }}>
+                  Compliant: {imageInferenceResult.results.uc3?.compliant_count ?? 0} | Violations: {imageInferenceResult.results.uc3?.violation_count ?? 0}
+                </div>
+                <div style={{ maxHeight: "80px", overflowY: "auto", fontSize: "11px" }}>
+                  {imageInferenceResult.results.uc3?.detections?.map((d, i: number) => (
+                    <div key={i} style={{ padding: "2px 0", borderBottom: "1px dashed var(--border)", color: "#ef4444" }}>
+                      ⚠️ {d.label} ({(d.confidence * 100).toFixed(0)}%)
+                    </div>
+                  ))}
+                  {(!imageInferenceResult.results.uc3?.detections || imageInferenceResult.results.uc3.detections.length === 0) && (
+                    <span style={{ color: "var(--text-muted)" }}>Full PPE compliance (or no workers)</span>
+                  )}
+                </div>
+              </div>
+
+              {/* UC4 Card */}
+              <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "6px", padding: "12px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
+                  <strong style={{ fontSize: "12px", color: "#eab308" }}>UC4 Vehicle Analytics</strong>
+                  <span style={{ fontSize: "10px", padding: "2px 6px", borderRadius: "3px", background: "rgba(234,179,8,0.1)", color: "#eab308" }}>
+                    {imageInferenceResult.results.uc4?.status ?? "N/A"}
+                  </span>
+                </div>
+                <div style={{ fontSize: "11px", color: "var(--text-muted)", marginBottom: "4px" }}>
+                  Vehicles: {imageInferenceResult.results.uc4?.detections?.length ?? 0} | ANPR: {imageInferenceResult.results.uc4?.plates_detected?.length ?? 0}
+                </div>
+                <div style={{ maxHeight: "80px", overflowY: "auto", fontSize: "11px" }}>
+                  {imageInferenceResult.results.uc4?.detections?.map((d, i: number) => (
+                    <div key={i} style={{ padding: "2px 0", borderBottom: "1px dashed var(--border)" }}>
+                      {d.label} ({(d.confidence * 100).toFixed(0)}%)
+                    </div>
+                  ))}
+                  {(!imageInferenceResult.results.uc4?.detections || imageInferenceResult.results.uc4.detections.length === 0) && (
+                    <span style={{ color: "var(--text-muted)" }}>No vehicles detected</span>
+                  )}
+                </div>
+                {imageInferenceResult.results.uc4?.temporal_tracking_available === false && (
+                  <div style={{ fontSize: "9px", color: "var(--text-muted)", marginTop: "4px" }}>
+                    ℹ️ Speed tracking requires consecutive video frames.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {uploadProgress !== null && (
           <div style={{ marginBottom: "16px" }}>

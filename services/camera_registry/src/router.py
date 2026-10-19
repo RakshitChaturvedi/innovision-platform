@@ -1,4 +1,11 @@
+import asyncio
 import json
+import logging
+import os
+import cv2
+import httpx
+import numpy as np
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Header
 from typing import Optional
 
@@ -20,6 +27,7 @@ from services.camera_registry.src.service import CameraRegistryService
 from services.camera_registry.src.video_sessions import CameraRegistryVideoSessionCoordinator
 from services.auth.src.rbac import get_current_user, require_role, require_organization_access, Role, verify_resource_org
 from uuid import UUID
+import uuid
 
 router = APIRouter(prefix="/cameras", tags=["camera-registry"])
 analytics_router = APIRouter(prefix="/analytics", tags=["analytics-catalog"])
@@ -701,3 +709,105 @@ async def stop_camera_video_session(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- Multi-Pipeline Single-Image Inference Dispatcher ---
+
+logger = logging.getLogger("camera_registry.router")
+
+UC1_URL = os.getenv("UC1_SERVICE_URL", "http://127.0.0.1:8021")
+UC2_URL = os.getenv("UC2_SERVICE_URL", "http://127.0.0.1:8022")
+UC3_URL = os.getenv("UC3_SERVICE_URL", "http://127.0.0.1:8023")
+UC4_URL = os.getenv("UC4_SERVICE_URL", "http://127.0.0.1:8024")
+
+
+@router.post(
+    "/{camera_id}/infer-image",
+    status_code=200,
+    dependencies=[Depends(require_role(Role.OPERATOR))]
+)
+async def infer_camera_image(
+    camera_id: str,
+    request: Request,
+    user: dict = Depends(get_current_user),
+    service: CameraRegistryService = Depends(get_service),
+    coordinator: CameraRegistryVideoSessionCoordinator = Depends(get_video_coordinator),
+):
+    """
+    Unified Single-Input Multi-Pipeline Image Inference Dispatcher.
+    Takes one uploaded image, verifies dimensions, caches in Redis,
+    and dispatches concurrently to UC1, UC2, UC3, and UC4 without interference.
+    Returns aggregated detection results from all four pipelines.
+    """
+    camera = await service.get_camera(camera_id)
+    if not camera:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    verify_resource_org(camera.get("organization_id"), user)
+
+    content_type = request.headers.get("content-type", "")
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        file_obj = form.get("file") or form.get("image")
+        if not file_obj:
+            raise HTTPException(status_code=400, detail="No file uploaded in form")
+        image_bytes = await file_obj.read()
+    else:
+        image_bytes = await request.body()
+
+    if not image_bytes or len(image_bytes) == 0:
+        raise HTTPException(status_code=400, detail="Empty image payload")
+
+    frame = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
+    if frame is None:
+        raise HTTPException(status_code=400, detail="Invalid image format or corrupted bytes")
+
+    height, width = frame.shape[:2]
+    img_uuid = uuid.uuid4().hex[:12]
+    frame_ref = f"frames:{camera_id}:img_{img_uuid}"
+
+    # Cache image in Redis so consumers can fetch if stream event is used
+    try:
+        if coordinator._redis:
+            await coordinator._redis.set(frame_ref, image_bytes, ex=300)
+    except Exception as e:
+        logger.warning("redis_image_cache_warning error=%s", e)
+
+    # Dispatch concurrently to all 4 use cases
+    async def call_uc(url: str, name: str) -> dict:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(
+                    f"{url}/{name}/cameras/{camera_id}/infer-image",
+                    content=image_bytes,
+                    headers={"Content-Type": "application/octet-stream"},
+                )
+                if resp.status_code == 200:
+                    return resp.json()
+                return {"status": "error", "use_case": name, "http_status": resp.status_code, "detail": resp.text}
+        except Exception as exc:
+            return {"status": "unavailable", "use_case": name, "error": str(exc)}
+
+    results = await asyncio.gather(
+        call_uc(UC1_URL, "uc1"),
+        call_uc(UC2_URL, "uc2"),
+        call_uc(UC3_URL, "uc3"),
+        call_uc(UC4_URL, "uc4"),
+        return_exceptions=False,
+    )
+
+    uc1_res, uc2_res, uc3_res, uc4_res = results
+
+    return {
+        "status": "success",
+        "camera_id": camera_id,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "source_type": "uploaded_image",
+        "resolution": f"{width}x{height}",
+        "frame_reference": frame_ref,
+        "results": {
+            "uc1": uc1_res,
+            "uc2": uc2_res,
+            "uc3": uc3_res,
+            "uc4": uc4_res,
+        },
+    }

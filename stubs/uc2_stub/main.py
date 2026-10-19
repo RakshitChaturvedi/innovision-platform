@@ -21,7 +21,7 @@ from uuid import UUID
 import cv2
 import numpy as np
 import redis.asyncio as aioredis
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -380,6 +380,102 @@ async def get_latest_detections_endpoint(camera_id: str):
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "camera_id": camera_id,
         "detections": [],
+        "zones": [],
+    }
+
+
+@app.post("/uc2/cameras/{camera_id}/infer-image")
+@app.post("/cameras/{camera_id}/infer-image")
+async def infer_image_endpoint(camera_id: str, request: Request):
+    """
+    Direct still-image inference for UC2 (Fire, Smoke & Sparks).
+    Accepts raw image bytes or multipart form file, executes the CV engine pipeline,
+    updates latest detections for the camera, and returns result.
+    """
+    global _pipeline, _pipeline_loaded
+    if _pipeline is None:
+        _load_pipeline()
+    if _pipeline is None:
+        raise HTTPException(status_code=503, detail="UC2 pipeline failed to initialize")
+
+    content_type = request.headers.get("content-type", "")
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        file_obj = form.get("file") or form.get("image")
+        if not file_obj:
+            raise HTTPException(status_code=400, detail="No file uploaded in form")
+        image_bytes = await file_obj.read()
+    else:
+        image_bytes = await request.body()
+
+    if not image_bytes or len(image_bytes) == 0:
+        raise HTTPException(status_code=400, detail="Empty image payload")
+
+    frame = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
+    if frame is None:
+        raise HTTPException(status_code=400, detail="Failed to decode image bytes")
+
+    h, w = frame.shape[:2]
+    result = _pipeline.process_frame(
+        camera_id=camera_id,
+        frame_seq=0,
+        frame_bgr=frame,
+        prev_frame_bgr=None,
+    )
+
+    dets_payload = []
+    for idx, det in enumerate(result.confirmed_detections):
+        x1 = float(max(0.0, min(1.0, round(float(det.bbox["x1"]) / float(w), 4))))
+        y1 = float(max(0.0, min(1.0, round(float(det.bbox["y1"]) / float(h), 4))))
+        x2 = float(max(0.0, min(1.0, round(float(det.bbox["x2"]) / float(w), 4))))
+        y2 = float(max(0.0, min(1.0, round(float(det.bbox["y2"]) / float(h), 4))))
+        is_fire = det.detection_type.lower() == "fire"
+        is_sparks = "spark" in det.detection_type.lower()
+        if is_fire:
+            lbl = "FIRE"
+            clr = "#FF0000"
+        elif is_sparks:
+            lbl = "SPARKS"
+            clr = "#FFFF00"
+        else:
+            lbl = "SMOKE"
+            clr = "#FFA500"
+
+        dets_payload.append({
+            "track_id": int(idx + 1),
+            "bbox": {"x1": x1, "y1": y1, "x2": x2, "y2": y2},
+            "label": lbl,
+            "color": clr,
+            "metadata": {
+                "confidence": float(round(float(det.final_confidence), 4)),
+                "raw_class": det.detection_type,
+                "zone": str(det.zone.zone_name) if det.zone else "Default",
+                "severity": str(det.severity.value) if hasattr(det.severity, "value") else str(det.severity),
+            },
+        })
+
+    snapshot = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "camera_id": camera_id,
+        "source_type": "uploaded_image",
+        "detections": dets_payload,
+        "zones": [],
+    }
+
+    with _latest_detections_lock:
+        latest_detections[camera_id] = snapshot
+
+    return {
+        "status": "success",
+        "use_case": "uc2",
+        "camera_id": camera_id,
+        "source_type": "uploaded_image",
+        "resolution": f"{w}x{h}",
+        "confirmed_detections": len(result.confirmed_detections),
+        "fire_detected": any(d.detection_type.lower() == "fire" for d in result.confirmed_detections),
+        "smoke_detected": any(d.detection_type.lower() == "smoke" for d in result.confirmed_detections),
+        "sparks_detected": any("spark" in d.detection_type.lower() for d in result.confirmed_detections),
+        "detections": dets_payload,
         "zones": [],
     }
 

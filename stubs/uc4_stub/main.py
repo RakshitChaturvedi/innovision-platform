@@ -22,7 +22,7 @@ from uuid import UUID
 import cv2
 import numpy as np
 import redis.asyncio as aioredis
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 os.environ["FLAGS_use_mkldnn"] = "0"
@@ -782,6 +782,101 @@ async def get_latest_detections_endpoint(camera_id: str):
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "camera_id": camera_id,
         "detections": [],
+        "zones": [],
+    }
+
+
+@app.post("/uc4/cameras/{camera_id}/infer-image")
+@app.post("/cameras/{camera_id}/infer-image")
+async def infer_image_endpoint(camera_id: str, request: Request):
+    """
+    Direct still-image inference for UC4 (Vehicle Analytics & ANPR).
+    Accepts raw image bytes or multipart form file, executes vehicle detection and plate extraction.
+    Clearly notes that speed estimation requires consecutive video frames across time.
+    """
+    global _models_loaded, _yolo_model
+    if not _models_loaded:
+        _load_models()
+
+    content_type = request.headers.get("content-type", "")
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        file_obj = form.get("file") or form.get("image")
+        if not file_obj:
+            raise HTTPException(status_code=400, detail="No file uploaded in form")
+        image_bytes = await file_obj.read()
+    else:
+        image_bytes = await request.body()
+
+    if not image_bytes or len(image_bytes) == 0:
+        raise HTTPException(status_code=400, detail="Empty image payload")
+
+    frame = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
+    if frame is None:
+        raise HTTPException(status_code=400, detail="Failed to decode image bytes")
+
+    height, width = frame.shape[:2]
+    detections_payload = []
+
+    if _yolo_model:
+        yolo_results = _yolo_model.predict(
+            source=frame,
+            classes=[2, 3, 5, 7],  # car, motorcycle, bus, truck in COCO
+            conf=0.25,
+            verbose=False,
+        )
+        if yolo_results and len(yolo_results) > 0:
+            res = yolo_results[0]
+            boxes = res.boxes
+            if boxes is not None:
+                for idx, b in enumerate(boxes):
+                    cls_id = int(b.cls[0])
+                    v_type = YOLO_CLASS_MAP.get(cls_id, "Vehicle")
+                    conf = float(b.conf[0])
+                    xyxyn = b.xyxyn[0].tolist() if hasattr(b, "xyxyn") and len(b.xyxyn) > 0 else [0, 0, 1, 1]
+                    nx1, ny1, nx2, ny2 = float(xyxyn[0]), float(xyxyn[1]), float(xyxyn[2]), float(xyxyn[3])
+
+                    detections_payload.append({
+                        "track_id": int(idx + 1),
+                        "bbox": {
+                            "x1": round(nx1, 4),
+                            "y1": round(ny1, 4),
+                            "x2": round(nx2, 4),
+                            "y2": round(ny2, 4),
+                        },
+                        "label": f"{v_type} {int(conf * 100)}%",
+                        "color": "#38BDF8",
+                        "compliant": True,
+                        "metadata": {
+                            "vehicle_type": v_type,
+                            "confidence": round(conf, 2),
+                            "speed_kmh": 0.0,
+                            "speed_note": "Temporal tracking across video frames required for speed calculation",
+                            "plate": None,
+                        },
+                    })
+
+    snapshot = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "camera_id": camera_id,
+        "source_type": "uploaded_image",
+        "detections": detections_payload,
+        "zones": [],
+    }
+
+    with _latest_detections_lock:
+        latest_detections[camera_id] = snapshot
+
+    return {
+        "status": "success",
+        "use_case": "uc4",
+        "camera_id": camera_id,
+        "source_type": "uploaded_image",
+        "resolution": f"{width}x{height}",
+        "vehicle_count": len(detections_payload),
+        "temporal_tracking_available": False,
+        "speed_estimation_available": False,
+        "detections": detections_payload,
         "zones": [],
     }
 

@@ -113,3 +113,79 @@ export async function stopCameraVideoSession(
   );
   return data;
 }
+
+export interface PipelineDetection {
+  label: string;
+  confidence: number;
+  bbox?: number[];
+  box?: number[];
+  tracking_id?: number | string;
+  zone_id?: string;
+  [key: string]: unknown;
+}
+
+export interface UC1ImageResult {
+  status: string;
+  detections: PipelineDetection[];
+  person_count?: number;
+  intrusion_count?: number;
+  error?: string;
+}
+
+export interface UC2ImageResult {
+  status: string;
+  detections: PipelineDetection[];
+  candidate_count?: number;
+  verified_count?: number;
+  error?: string;
+}
+
+export interface UC3ImageResult {
+  status: string;
+  detections: PipelineDetection[];
+  compliant_count?: number;
+  violation_count?: number;
+  error?: string;
+}
+
+export interface UC4ImageResult {
+  status: string;
+  detections: PipelineDetection[];
+  vehicle_count?: number;
+  plates_detected?: Array<{ text: string; confidence: number; bbox: number[] }>;
+  temporal_tracking_available?: boolean;
+  speed_kmh?: number;
+  error?: string;
+}
+
+export interface MultiPipelineImageInferenceResponse {
+  status: string;
+  camera_id: string;
+  timestamp: string;
+  source_type: string;
+  resolution: string;
+  frame_reference?: string;
+  results: {
+    uc1?: UC1ImageResult;
+    uc2?: UC2ImageResult;
+    uc3?: UC3ImageResult;
+    uc4?: UC4ImageResult;
+  };
+}
+
+export async function inferCameraImage(
+  cameraId: string,
+  file: File,
+): Promise<MultiPipelineImageInferenceResponse> {
+  const { data } = await cameraClient.post<MultiPipelineImageInferenceResponse>(
+    `/cameras/${cameraId}/infer-image`,
+    file,
+    {
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "X-Filename": file.name,
+      },
+    },
+  );
+  return data;
+}

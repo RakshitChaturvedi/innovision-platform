@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import time
 from typing import Any, Dict
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 
 router = APIRouter(prefix="/uc3", tags=["uc3-ppe-detection"])
 
@@ -39,6 +39,97 @@ async def get_latest_detections(
         }
 
     return detections_data
+
+
+@router.post("/cameras/{camera_id}/infer-image")
+async def infer_image(camera_id: str, request: Request) -> Dict[str, Any]:
+    """
+    Direct still-image inference for UC3 (PPE Compliance).
+    Accepts raw image bytes or multipart form file, executes YOLO PPE model,
+    identifies violation items (missing helmets, vests, etc.), updates latest detections, and returns result.
+    """
+    import cv2
+    import numpy as np
+    from datetime import datetime, timezone
+    from services.uc3.src.consumer import format_detections_for_overlay
+    import services.uc3.src.ppe_config as config
+
+    content_type = request.headers.get("content-type", "")
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        file_obj = form.get("file") or form.get("image")
+        if not file_obj:
+            raise HTTPException(status_code=400, detail="No file uploaded in form")
+        image_bytes = await file_obj.read()
+    else:
+        image_bytes = await request.body()
+
+    if not image_bytes or len(image_bytes) == 0:
+        raise HTTPException(status_code=400, detail="Empty image payload")
+
+    frame = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
+    if frame is None:
+        raise HTTPException(status_code=400, detail="Failed to decode image bytes")
+
+    h, w = frame.shape[:2]
+
+    raw_detections = []
+    if consumer_manager and consumer_manager._model:
+        results = consumer_manager._model.predict(
+            source=frame,
+            conf=config.CONF_THRESHOLD,
+            imgsz=config.IMAGE_SIZE,
+            verbose=False,
+        )
+        if results and len(results) > 0:
+            res = results[0]
+            boxes = res.boxes
+            if boxes is not None:
+                for idx, b in enumerate(boxes):
+                    cls_id = int(b.cls[0])
+                    label = res.names.get(cls_id, f"class_{cls_id}")
+                    conf = float(b.conf[0])
+                    xyxyn = b.xyxyn[0].tolist() if hasattr(b, "xyxyn") and len(b.xyxyn) > 0 else [0, 0, 1, 1]
+                    is_vio = label.lower().startswith("no-")
+                    raw_detections.append({
+                        "_track_id": idx + 1,
+                        "label": label,
+                        "confidence": conf,
+                        "box": [round(float(xyxyn[0]), 4), round(float(xyxyn[1]), 4), round(float(xyxyn[2]), 4), round(float(xyxyn[3]), 4)],
+                        "compliant": not is_vio,
+                        "is_violation": is_vio,
+                    })
+
+    overlay_detections = format_detections_for_overlay(raw_detections, violations_only=True)
+    violations = [d["label"] for d in overlay_detections]
+
+    snapshot = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "camera_id": camera_id,
+        "source_type": "uploaded_image",
+        "session_id": None,
+        "detections": overlay_detections,
+        "severity": "critical" if len(violations) > 0 else "ok",
+        "violations": violations,
+        "violations_only": True,
+        "zone": None,
+    }
+
+    if consumer_manager:
+        consumer_manager.latest_detections[camera_id] = snapshot
+
+    return {
+        "status": "success",
+        "use_case": "uc3",
+        "camera_id": camera_id,
+        "source_type": "uploaded_image",
+        "resolution": f"{w}x{h}",
+        "raw_detections_count": len(raw_detections),
+        "violations_count": len(violations),
+        "detections": overlay_detections,
+        "violations": violations,
+        "violations_only": True,
+    }
 
 @router.get("/health")
 async def get_health() -> Dict[str, Any]:

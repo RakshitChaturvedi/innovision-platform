@@ -226,4 +226,5 @@ __marimo__/
 
 # Database dumps and backups
 infra/backups/
-*.sql
+*.sql
+*.pt

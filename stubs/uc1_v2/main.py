@@ -26,7 +26,7 @@ import cv2
 import httpx
 import numpy as np
 import redis.asyncio as aioredis
-from fastapi import FastAPI, HTTPException, Query, status
+from fastapi import FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from redis.exceptions import ResponseError
@@ -792,6 +792,71 @@ async def get_latest_detections(
         "intrusion_count": 0,
         "detections": [],
         "zones": get_camera_zones(camera_id),
+    }
+
+
+@app.post("/uc1/cameras/{camera_id}/infer-image")
+@app.post("/cameras/{camera_id}/infer-image")
+async def infer_image_endpoint(camera_id: str, request: Request):
+    """
+    Direct still-image inference for UC1.
+    Accepts raw image bytes or multipart form file, executes YOLO person detection
+    and polygon intrusion detection, updates latest detections for the camera, and returns result.
+    """
+    global model
+    if model is None:
+        try:
+            model = YOLO(MODEL_PATH)
+        except Exception:
+            model = YOLO("yolov8n.pt")
+
+    content_type = request.headers.get("content-type", "")
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        file_obj = form.get("file") or form.get("image")
+        if not file_obj:
+            raise HTTPException(status_code=400, detail="No file uploaded in form")
+        image_bytes = await file_obj.read()
+    else:
+        image_bytes = await request.body()
+
+    if not image_bytes or len(image_bytes) == 0:
+        raise HTTPException(status_code=400, detail="Empty image payload")
+
+    frame = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
+    if frame is None:
+        raise HTTPException(status_code=400, detail="Failed to decode image bytes")
+
+    height, width = frame.shape[:2]
+    people, intrusions, detections, intrusions_by_zone = detect_people_and_intrusions(
+        model=model,
+        frame=frame,
+        camera_id=camera_id,
+    )
+
+    current_zones = get_camera_zones(camera_id)
+    snapshot = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "camera_id": camera_id,
+        "session_id": None,
+        "source_type": "uploaded_image",
+        "people_count": people,
+        "intrusion_count": intrusions,
+        "detections": detections,
+        "zones": current_zones,
+    }
+    latest_camera_detections[camera_id] = snapshot
+
+    return {
+        "status": "success",
+        "use_case": "uc1",
+        "camera_id": camera_id,
+        "source_type": "uploaded_image",
+        "resolution": f"{width}x{height}",
+        "people_count": people,
+        "intrusion_count": intrusions,
+        "detections": detections,
+        "zones": current_zones,
     }
 
 
