@@ -67,6 +67,33 @@ const navigation: NavigationItem[] = [
     ),
   },
   {
+    label: "Speed Trap Configurator",
+    to: "/uc4/configurator",
+    minimumRole: "operator",
+    section: "Command & Live Ops",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <polygon points="12 2 2 7 12 12 22 7 12 2" />
+        <polyline points="2 17 12 22 22 17" />
+        <polyline points="2 12 12 17 22 12" />
+      </svg>
+    ),
+  },
+  {
+    label: "Traffic & ANPR Tracking",
+    to: "/uc4",
+    minimumRole: "viewer",
+    section: "Command & Live Ops",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="1" y="3" width="15" height="13" />
+        <polygon points="16 8 20 8 23 11 23 16 16 16 16 8" />
+        <circle cx="5.5" cy="18.5" r="2.5" />
+        <circle cx="18.5" cy="18.5" r="2.5" />
+      </svg>
+    ),
+  },
+  {
     label: "Sites & Zones",
     to: "/sites-zones",
     minimumRole: "admin",
