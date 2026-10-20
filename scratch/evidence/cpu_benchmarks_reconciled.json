@@ -1,0 +1,91 @@
+{
+  "hardware": {
+    "device": "cpu",
+    "cuda_available": false,
+    "cpu_threads": 10,
+    "warmup_iterations": 5,
+    "benchmark_iterations": 30
+  },
+  "benchmarks": {
+    "uc1": {
+      "model_name": "UC1 Intrusion (YOLOv8n)",
+      "checkpoint_path": "yolov8n.pt",
+      "load_time_ms": 192.98,
+      "raw_model_inference": {
+        "mean_ms": 114.87,
+        "p95_ms": 126.23,
+        "min_ms": 104.34,
+        "max_ms": 140.75
+      },
+      "complete_production_pipeline": {
+        "mean_ms": 133.83,
+        "p95_ms": 156.97,
+        "min_ms": 119.67,
+        "max_ms": 193.75,
+        "overhead_ms": 18.96
+      },
+      "single_stream_throughput_fps": 7.5,
+      "meets_30fps_target": false
+    },
+    "uc2": {
+      "model_name": "UC2 Fire/Sparks (YOLOv8s Custom)",
+      "checkpoint_path": "stubs/uc2_stub/cv_engine/models/best.pt",
+      "load_time_ms": 189.81,
+      "raw_model_inference": {
+        "mean_ms": 200.77,
+        "p95_ms": 209.05,
+        "min_ms": 181.33,
+        "max_ms": 366.62
+      },
+      "complete_production_pipeline": {
+        "mean_ms": 201.45,
+        "p95_ms": 223.4,
+        "min_ms": 183.34,
+        "max_ms": 241.24,
+        "overhead_ms": 0.68
+      },
+      "single_stream_throughput_fps": 5.0,
+      "meets_30fps_target": false
+    },
+    "uc3": {
+      "model_name": "UC3 PPE Compliance (YOLOv8n Custom)",
+      "checkpoint_path": "services/uc3/models/best.pt",
+      "load_time_ms": 180.94,
+      "raw_model_inference": {
+        "mean_ms": 570.21,
+        "p95_ms": 626.49,
+        "min_ms": 538.36,
+        "max_ms": 691.96
+      },
+      "complete_production_pipeline": {
+        "mean_ms": 590.76,
+        "p95_ms": 628.89,
+        "min_ms": 562.9,
+        "max_ms": 643.9,
+        "overhead_ms": 20.55
+      },
+      "single_stream_throughput_fps": 1.7,
+      "meets_30fps_target": false
+    },
+    "uc4": {
+      "model_name": "UC4 Traffic & ANPR (YOLO11n)",
+      "checkpoint_path": "yolo11n.pt",
+      "load_time_ms": 142.75,
+      "raw_model_inference": {
+        "mean_ms": 106.3,
+        "p95_ms": 124.67,
+        "min_ms": 84.37,
+        "max_ms": 232.28
+      },
+      "complete_production_pipeline": {
+        "mean_ms": 112.19,
+        "p95_ms": 123.17,
+        "min_ms": 98.32,
+        "max_ms": 125.11,
+        "overhead_ms": 5.89
+      },
+      "single_stream_throughput_fps": 8.9,
+      "meets_30fps_target": false
+    }
+  }
+}

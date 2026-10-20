@@ -1,0 +1,290 @@
+{
+  "uc1": {
+    "image_dims": [
+      1200,
+      896
+    ],
+    "detections_count": 5,
+    "boxes": [
+      {
+        "box_idx": 0,
+        "class_id": 0,
+        "class_name": "person",
+        "conf": 0.923,
+        "xyxy_pixels": [
+          454,
+          78,
+          749,
+          868
+        ],
+        "xyxyn_normalized": [
+          0.3784,
+          0.0875,
+          0.6242,
+          0.9689
+        ]
+      },
+      {
+        "box_idx": 1,
+        "class_id": 0,
+        "class_name": "person",
+        "conf": 0.498,
+        "xyxy_pixels": [
+          891,
+          278,
+          929,
+          333
+        ],
+        "xyxyn_normalized": [
+          0.7428,
+          0.3109,
+          0.7744,
+          0.3723
+        ]
+      },
+      {
+        "box_idx": 2,
+        "class_id": 0,
+        "class_name": "person",
+        "conf": 0.393,
+        "xyxy_pixels": [
+          1077,
+          281,
+          1120,
+          339
+        ],
+        "xyxyn_normalized": [
+          0.8978,
+          0.3139,
+          0.9339,
+          0.3785
+        ]
+      },
+      {
+        "box_idx": 3,
+        "class_id": 0,
+        "class_name": "person",
+        "conf": 0.376,
+        "xyxy_pixels": [
+          1003,
+          276,
+          1036,
+          336
+        ],
+        "xyxyn_normalized": [
+          0.8365,
+          0.3085,
+          0.8639,
+          0.3755
+        ]
+      },
+      {
+        "box_idx": 4,
+        "class_id": 0,
+        "class_name": "person",
+        "conf": 0.343,
+        "xyxy_pixels": [
+          962,
+          279,
+          1004,
+          334
+        ],
+        "xyxyn_normalized": [
+          0.8018,
+          0.3115,
+          0.8372,
+          0.373
+        ]
+      }
+    ]
+  },
+  "uc2": {
+    "image_dims": [
+      704,
+      1280
+    ],
+    "detections_count": 2,
+    "boxes": [
+      {
+        "box_idx": 0,
+        "class_id": 0,
+        "class_name": "fire",
+        "conf": 0.692,
+        "xyxy_pixels": [
+          394,
+          162,
+          412,
+          233
+        ],
+        "xyxyn_normalized": [
+          0.5598,
+          0.1267,
+          0.5856,
+          0.1827
+        ]
+      },
+      {
+        "box_idx": 1,
+        "class_id": 0,
+        "class_name": "fire",
+        "conf": 0.416,
+        "xyxy_pixels": [
+          475,
+          258,
+          496,
+          283
+        ],
+        "xyxyn_normalized": [
+          0.6759,
+          0.2019,
+          0.7057,
+          0.2212
+        ]
+      }
+    ]
+  },
+  "uc3": {
+    "image_dims": [
+      1200,
+      896
+    ],
+    "detections_count": 5,
+    "boxes": [
+      {
+        "box_idx": 0,
+        "class_id": 12,
+        "class_name": "vest",
+        "conf": 0.9,
+        "xyxy_pixels": [
+          500,
+          214,
+          709,
+          482
+        ],
+        "xyxyn_normalized": [
+          0.4175,
+          0.2394,
+          0.5909,
+          0.5382
+        ]
+      },
+      {
+        "box_idx": 1,
+        "class_id": 10,
+        "class_name": "person",
+        "conf": 0.756,
+        "xyxy_pixels": [
+          1073,
+          279,
+          1125,
+          365
+        ],
+        "xyxyn_normalized": [
+          0.8947,
+          0.3115,
+          0.9378,
+          0.4083
+        ]
+      },
+      {
+        "box_idx": 2,
+        "class_id": 10,
+        "class_name": "person",
+        "conf": 0.587,
+        "xyxy_pixels": [
+          1002,
+          273,
+          1042,
+          351
+        ],
+        "xyxyn_normalized": [
+          0.835,
+          0.3054,
+          0.8691,
+          0.3928
+        ]
+      },
+      {
+        "box_idx": 3,
+        "class_id": 2,
+        "class_name": "helmet",
+        "conf": 0.479,
+        "xyxy_pixels": [
+          976,
+          279,
+          995,
+          302
+        ],
+        "xyxyn_normalized": [
+          0.8139,
+          0.3119,
+          0.8295,
+          0.3377
+        ]
+      },
+      {
+        "box_idx": 4,
+        "class_id": 10,
+        "class_name": "person",
+        "conf": 0.459,
+        "xyxy_pixels": [
+          962,
+          277,
+          1003,
+          353
+        ],
+        "xyxyn_normalized": [
+          0.8024,
+          0.3102,
+          0.8361,
+          0.3945
+        ]
+      }
+    ]
+  },
+  "uc4": {
+    "image_dims": [
+      1280,
+      720
+    ],
+    "detections_count": 2,
+    "boxes": [
+      {
+        "box_idx": 0,
+        "class_id": 2,
+        "class_name": "car",
+        "conf": 0.879,
+        "xyxy_pixels": [
+          248,
+          229,
+          523,
+          476
+        ],
+        "xyxyn_normalized": [
+          0.1943,
+          0.319,
+          0.4089,
+          0.6612
+        ]
+      },
+      {
+        "box_idx": 1,
+        "class_id": 2,
+        "class_name": "car",
+        "conf": 0.708,
+        "xyxy_pixels": [
+          415,
+          152,
+          642,
+          363
+        ],
+        "xyxyn_normalized": [
+          0.3246,
+          0.2119,
+          0.502,
+          0.5046
+        ]
+      }
+    ]
+  }
+}

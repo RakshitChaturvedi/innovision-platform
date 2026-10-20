@@ -26,6 +26,7 @@ import { AnalyticsPage as UC4TrafficAnalyticsPage } from "@/modules/uc4/pages/An
 import { PipelinePage as UC4PipelinePage } from "@/modules/uc4/pages/PipelinePage";
 import { UC4OverviewPage } from "@/modules/uc4/pages/UC4OverviewPage";
 
+import { OverlayAcceptancePage } from "@/pages/OverlayAcceptancePage";
 import { ProtectedRoute } from "./ProtectedRoute";
 import { RoleRoute } from "./RoleRoute";
 
@@ -37,6 +38,7 @@ export function AppRoutes() {
         <Route path="/landing" element={<LandingPage />} />
         <Route path="/login" element={<Login />} />
         <Route path="/unauthorized" element={<Unauthorized />} />
+        <Route path="/overlay-acceptance" element={<OverlayAcceptancePage />} />
 
         {/* Authenticated */}
         <Route element={<ProtectedRoute />}>

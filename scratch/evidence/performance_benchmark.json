@@ -1,0 +1,40 @@
+{
+  "device": "cpu",
+  "cpu_cores": 12,
+  "model_load_and_warmup_ms": {
+    "uc1_yolov8n": 675.4,
+    "uc2_best_pt": 763.4,
+    "uc3_best_pt": 1811.5,
+    "uc4_yolo11n": 604.7
+  },
+  "independent_benchmarks": {
+    "uc1": {
+      "mean_latency_ms": 188.8,
+      "p95_latency_ms": 250.8,
+      "effective_fps": 5.3
+    },
+    "uc2": {
+      "mean_latency_ms": 309.7,
+      "p95_latency_ms": 326.7,
+      "effective_fps": 3.2
+    },
+    "uc3": {
+      "mean_latency_ms": 896.1,
+      "p95_latency_ms": 960.2,
+      "effective_fps": 1.1
+    },
+    "uc4": {
+      "mean_latency_ms": 172.7,
+      "p95_latency_ms": 222.2,
+      "effective_fps": 5.8
+    }
+  },
+  "concurrent_4_model_benchmarks": {
+    "mean_latency_ms": 1304.1,
+    "p95_latency_ms": 1496.4,
+    "combined_fps": 0.77,
+    "memory_rss_mb": 746.2,
+    "cpu_utilization_percent": 450.1,
+    "notes": "Execution is parallel across 4 ThreadPoolExecutor workers on 12-core host; CPU bound by PyTorch intra-op threads on CPU; recommended live streaming strategy is frame decimation (1 frame per 1.5s per stream on CPU) or GPU acceleration with TensorRT/CUDA."
+  }
+}
