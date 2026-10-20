@@ -31,7 +31,8 @@ IOU_THRESHOLD:  float = _float("PPE_IOU_THRESHOLD",  0.45)
 IMAGE_SIZE:     int   = _int("PPE_IMAGE_SIZE",        640)
 
 # Model paths
-MODEL_PATH: str = os.environ.get("PPE_MODEL_PATH", "/app/services/uc3/models/best.pt")
+_DEFAULT_MODEL_PATH = "services/uc3/models/best.pt" if os.path.exists("services/uc3/models/best.pt") else "/app/services/uc3/models/best.pt"
+MODEL_PATH: str = os.environ.get("PPE_MODEL_PATH", _DEFAULT_MODEL_PATH)
 TRACKER_CONFIG_PATH: str = os.environ.get("PPE_TRACKER_CONFIG", "/app/services/uc3/src/tracker_config.yaml")
 
 # ── Gate Models ────────────────────────────────────────────────────────────────

@@ -99,7 +99,7 @@ def format_detections_for_overlay(
             "color": color,
             "compliant": comp,
             "is_violation": is_vio,
-            "confidence": round(d["conf"], 2),
+            "confidence": round(float(d.get("conf") if "conf" in d else d.get("confidence", 0.0)), 2),
         })
     return formatted
 

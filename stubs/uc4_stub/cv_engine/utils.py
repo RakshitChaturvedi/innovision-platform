@@ -20,7 +20,31 @@ from typing import Dict, Any
 
 BLACKLISTED_PLATES = {"TS08EX1234", "AP28CH7890", "TS09FF1122"}
 
-YOLO_CLASS_MAP = {1: "Bike", 2: "Car", 3: "Bike", 5: "Bus", 7: "Truck"}
+# Standard COCO-trained YOLO vehicle class mapping:
+# Class 1: bicycle, Class 2: car, Class 3: motorcycle, Class 5: bus, Class 7: truck
+YOLO_CLASS_MAP = {
+    1: "Bicycle",
+    2: "Car",
+    3: "Motorcycle",
+    5: "Bus",
+    7: "Truck",
+}
+
+YOLO_COCO_NAMES = {
+    1: "bicycle",
+    2: "car",
+    3: "motorcycle",
+    5: "bus",
+    7: "truck",
+}
+
+YOLO_CATEGORY_MAP = {
+    1: "bicycle",
+    2: "car",
+    3: "motorcycle",
+    5: "bus",
+    7: "truck",
+}
 
 # ─── Plate Correction ────────────────────────────────────────────────────────
 

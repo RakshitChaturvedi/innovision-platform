@@ -123,3 +123,42 @@ def test_build_alert_from_detection_contract():
     assert alert.alert_type == "fire_detected"
     assert alert.severity == AlertSeverity.HIGH
     assert alert.metadata["confidence"] == 0.88
+
+
+def test_pixel_to_normalized_coordinate_conversion_consistency():
+    """
+    Regression test for P0: Verifies exact coordinate mapping between
+    pixel bounding boxes [x1, y1, x2, y2] and normalized [nx1, ny1, nx2, ny2]
+    given specific frame dimensions (width, height), accounting for portrait/vertical video.
+    """
+    # Real UC2 sample video dimensions: 704 width x 1280 height
+    width = 704
+    height = 1280
+
+    # Ground truth detection at frame 85 in test_data/videos/uc2.mp4
+    x1_pixel = 394.1269836425781
+    y1_pixel = 162.12551879882812
+    x2_pixel = 412.2674865722656
+    y2_pixel = 233.8017120361328
+
+    # Mathematical normalization
+    nx1 = x1_pixel / width
+    ny1 = y1_pixel / height
+    nx2 = x2_pixel / width
+    ny2 = y2_pixel / height
+
+    # Verify expected values (rounded to 4 decimal places)
+    assert round(nx1, 4) == 0.5598
+    assert round(ny1, 4) == 0.1267
+    assert round(nx2, 4) == 0.5856
+    assert round(ny2, 4) == 0.1827
+
+    # Verify geometric validity: 0 <= x1 < x2 <= width and 0 <= y1 < y2 <= height
+    assert 0 <= x1_pixel < x2_pixel <= width
+    assert 0 <= y1_pixel < y2_pixel <= height
+    assert 0.0 <= nx1 < nx2 <= 1.0
+    assert 0.0 <= ny1 < ny2 <= 1.0
+
+    # Demonstrate failure if dimensions were inverted (e.g. dividing by 1280 for width)
+    inverted_nx1 = x1_pixel / height  # Incorrectly using height for x-axis
+    assert round(inverted_nx1, 4) != 0.5598

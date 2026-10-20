@@ -42,7 +42,7 @@ async def get_latest_detections(
 
 
 @router.post("/cameras/{camera_id}/infer-image")
-async def infer_image(camera_id: str, request: Request) -> Dict[str, Any]:
+async def infer_image(camera_id: str, request: Request, violations_only: bool = False) -> Dict[str, Any]:
     """
     Direct still-image inference for UC3 (PPE Compliance).
     Accepts raw image bytes or multipart form file, executes YOLO PPE model,
@@ -74,8 +74,18 @@ async def infer_image(camera_id: str, request: Request) -> Dict[str, Any]:
     h, w = frame.shape[:2]
 
     raw_detections = []
-    if consumer_manager and consumer_manager._model:
-        results = consumer_manager._model.predict(
+    model_to_use = consumer_manager._model if (consumer_manager and hasattr(consumer_manager, "_model") and consumer_manager._model) else None
+    if model_to_use is None:
+        try:
+            import os
+            from ultralytics import YOLO
+            if os.path.exists(config.MODEL_PATH):
+                model_to_use = YOLO(config.MODEL_PATH)
+        except Exception:
+            pass
+
+    if model_to_use:
+        results = model_to_use.predict(
             source=frame,
             conf=config.CONF_THRESHOLD,
             imgsz=config.IMAGE_SIZE,
@@ -94,13 +104,14 @@ async def infer_image(camera_id: str, request: Request) -> Dict[str, Any]:
                     raw_detections.append({
                         "_track_id": idx + 1,
                         "label": label,
+                        "conf": conf,
                         "confidence": conf,
                         "box": [round(float(xyxyn[0]), 4), round(float(xyxyn[1]), 4), round(float(xyxyn[2]), 4), round(float(xyxyn[3]), 4)],
                         "compliant": not is_vio,
                         "is_violation": is_vio,
                     })
 
-    overlay_detections = format_detections_for_overlay(raw_detections, violations_only=True)
+    overlay_detections = format_detections_for_overlay(raw_detections, violations_only=violations_only)
     violations = [d["label"] for d in overlay_detections]
 
     snapshot = {

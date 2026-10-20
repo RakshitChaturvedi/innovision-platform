@@ -53,6 +53,8 @@ from stubs.uc4_stub.calibration import get_calibration, close_engine, CameraCali
 from stubs.uc4_stub.cv_engine.speed_estimator import SpeedEstimator
 from stubs.uc4_stub.cv_engine.utils import (
     YOLO_CLASS_MAP,
+    YOLO_COCO_NAMES,
+    YOLO_CATEGORY_MAP,
     BLACKLISTED_PLATES,
     clean_plate,
     enhance_plate,
@@ -408,10 +410,12 @@ async def process_frame(
             x2, y2 = min(width, int(x2)), min(height, int(y2))
             cls_id = int(detections.class_id[idx]) if detections.class_id is not None else 2
             v_type = YOLO_CLASS_MAP.get(cls_id, "Car")
-            valid_tracks.append((int(tid), x1, y1, x2, y2, v_type, idx))
+            v_coco = YOLO_COCO_NAMES.get(cls_id, "car")
+            v_cat = YOLO_CATEGORY_MAP.get(cls_id, "car")
+            valid_tracks.append((int(tid), x1, y1, x2, y2, v_type, idx, cls_id, v_coco, v_cat))
 
     # ── 6. Update sessions, speeds, OCR ──────────────────────────
-    for tid, x1, y1, x2, y2, v_type, det_idx in valid_tracks:
+    for tid, x1, y1, x2, y2, v_type, det_idx, cls_id, v_coco, v_cat in valid_tracks:
         inst_speed = 0.0
         bottom_center = (int((x1 + x2) / 2), int(y2))
 
@@ -429,6 +433,9 @@ async def process_frame(
                 "plate_reads": [],
                 "plate_confidences": [],
                 "vehicle_type": v_type,
+                "class_id": cls_id,
+                "class_name": v_coco,
+                "vehicle_category": v_cat,
                 "last_seen": frame_counter,
                 "max_speed_kmh": inst_speed,
                 "first_seen": frame_counter,
@@ -436,6 +443,9 @@ async def process_frame(
         else:
             active_sessions[tid]["last_seen"] = frame_counter
             active_sessions[tid]["vehicle_type"] = v_type
+            active_sessions[tid]["class_id"] = cls_id
+            active_sessions[tid]["class_name"] = v_coco
+            active_sessions[tid]["vehicle_category"] = v_cat
             if inst_speed > active_sessions[tid].get("max_speed_kmh", 0):
                 active_sessions[tid]["max_speed_kmh"] = inst_speed
 
@@ -462,7 +472,7 @@ async def process_frame(
                                 logger.debug("ocr_queue_full tracker=%d frame=%d", tid, frame_counter)
 
     # ── 7. Emit alerts immediately on detection ──────────────────
-    for tid, x1, y1, x2, y2, v_type, det_idx in valid_tracks:
+    for tid, x1, y1, x2, y2, v_type, det_idx, cls_id, v_coco, v_cat in valid_tracks:
         session = active_sessions.get(tid)
         if session is None:
             continue
@@ -500,6 +510,9 @@ async def process_frame(
                 speed_kmh=max_speed,
                 speed_limit_kmh=speed_limit,
                 vehicle_type=v_type,
+                class_id=cls_id,
+                class_name=v_coco,
+                vehicle_category=v_cat,
                 frame_reference=fr_ref,
                 frame_provider=fr_prov,
             )
@@ -531,6 +544,9 @@ async def process_frame(
                 speed_kmh=max_speed,
                 speed_limit_kmh=speed_limit,
                 vehicle_type=v_type,
+                class_id=cls_id,
+                class_name=v_coco,
+                vehicle_category=v_cat,
                 frame_reference=fr_ref,
                 frame_provider=fr_prov,
             )
@@ -555,6 +571,9 @@ async def process_frame(
                 tracker_id=tid,
                 plate=consensus_plate,
                 vehicle_type=v_type,
+                class_id=cls_id,
+                class_name=v_coco,
+                vehicle_category=v_cat,
                 frame_reference=fr_ref,
                 frame_provider=fr_prov,
             )
@@ -586,6 +605,9 @@ async def process_frame(
                 confidence=avg_conf,
                 vehicle_type=v_type,
                 speed_kmh=max_speed,
+                class_id=cls_id,
+                class_name=v_coco,
+                vehicle_category=v_cat,
                 frame_reference=fr_ref,
                 frame_provider=fr_prov,
             )
@@ -821,7 +843,7 @@ async def infer_image_endpoint(camera_id: str, request: Request):
     if _yolo_model:
         yolo_results = _yolo_model.predict(
             source=frame,
-            classes=[2, 3, 5, 7],  # car, motorcycle, bus, truck in COCO
+            classes=[1, 2, 3, 5, 7],  # bicycle, car, motorcycle, bus, truck in COCO
             conf=0.25,
             verbose=False,
         )
@@ -832,6 +854,8 @@ async def infer_image_endpoint(camera_id: str, request: Request):
                 for idx, b in enumerate(boxes):
                     cls_id = int(b.cls[0])
                     v_type = YOLO_CLASS_MAP.get(cls_id, "Vehicle")
+                    v_coco = YOLO_COCO_NAMES.get(cls_id, "vehicle")
+                    v_cat = YOLO_CATEGORY_MAP.get(cls_id, "vehicle")
                     conf = float(b.conf[0])
                     xyxyn = b.xyxyn[0].tolist() if hasattr(b, "xyxyn") and len(b.xyxyn) > 0 else [0, 0, 1, 1]
                     nx1, ny1, nx2, ny2 = float(xyxyn[0]), float(xyxyn[1]), float(xyxyn[2]), float(xyxyn[3])
@@ -849,6 +873,9 @@ async def infer_image_endpoint(camera_id: str, request: Request):
                         "compliant": True,
                         "metadata": {
                             "vehicle_type": v_type,
+                            "class_id": cls_id,
+                            "class_name": v_coco,
+                            "vehicle_category": v_cat,
                             "confidence": round(conf, 2),
                             "speed_kmh": 0.0,
                             "speed_note": "Temporal tracking across video frames required for speed calculation",

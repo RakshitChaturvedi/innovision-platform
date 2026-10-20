@@ -49,6 +49,9 @@ def build_speed_violation_alert(
     speed_kmh: float,
     speed_limit_kmh: float,
     vehicle_type: str = "Car",
+    class_id: Optional[int] = None,
+    class_name: Optional[str] = None,
+    vehicle_category: Optional[str] = None,
     frame_reference: Optional[str] = None,
     frame_provider: Optional[FrameProvider] = None,
 ) -> AlertEvent:
@@ -66,6 +69,20 @@ def build_speed_violation_alert(
 
     plate_display = str(plate) if plate and plate != "UNKNOWN" else "Unknown Plate"
 
+    meta = {
+        "tracker_id": int(tracker_id),
+        "speed": float(round(s_kmh, 1)),
+        "speed_limit_kmh": float(round(sl_kmh, 1)),
+        "plate_number": str(plate),
+        "vehicle_type": str(vehicle_type),
+    }
+    if class_id is not None:
+        meta["class_id"] = int(class_id)
+    if class_name is not None:
+        meta["class_name"] = str(class_name)
+    if vehicle_category is not None:
+        meta["vehicle_category"] = str(vehicle_category)
+
     return AlertEvent(
         camera_id=camera_id,
         timestamp=datetime.now(timezone.utc),
@@ -80,13 +97,7 @@ def build_speed_violation_alert(
         source_uc=SourceUC.UC4,
         frame_reference=frame_reference,
         frame_provider=frame_provider,
-        metadata={
-            "tracker_id": int(tracker_id),
-            "speed": float(round(s_kmh, 1)),
-            "speed_limit_kmh": float(round(sl_kmh, 1)),
-            "plate_number": str(plate),
-            "vehicle_type": str(vehicle_type),
-        },
+        metadata=meta,
     )
 
 
@@ -97,6 +108,9 @@ def build_unauthorized_vehicle_alert(
     tracker_id: int,
     plate: str,
     vehicle_type: str = "Car",
+    class_id: Optional[int] = None,
+    class_name: Optional[str] = None,
+    vehicle_category: Optional[str] = None,
     frame_reference: Optional[str] = None,
     frame_provider: Optional[FrameProvider] = None,
 ) -> AlertEvent:
@@ -104,6 +118,19 @@ def build_unauthorized_vehicle_alert(
     Build an 'unauthorized_vehicle' AlertEvent for blacklisted plates.
     alert_type: EXACTLY "unauthorized_vehicle".
     """
+    meta = {
+        "tracker_id": int(tracker_id),
+        "plate_number": str(plate),
+        "vehicle_type": str(vehicle_type),
+        "blacklisted": True,
+    }
+    if class_id is not None:
+        meta["class_id"] = int(class_id)
+    if class_name is not None:
+        meta["class_name"] = str(class_name)
+    if vehicle_category is not None:
+        meta["vehicle_category"] = str(vehicle_category)
+
     return AlertEvent(
         camera_id=camera_id,
         timestamp=datetime.now(timezone.utc),
@@ -117,12 +144,7 @@ def build_unauthorized_vehicle_alert(
         source_uc=SourceUC.UC4,
         frame_reference=frame_reference,
         frame_provider=frame_provider,
-        metadata={
-            "tracker_id": int(tracker_id),
-            "plate_number": str(plate),
-            "vehicle_type": str(vehicle_type),
-            "blacklisted": True,
-        },
+        metadata=meta,
     )
 
 
@@ -135,6 +157,9 @@ def build_anpr_read_alert(
     confidence: float,
     vehicle_type: str = "Car",
     speed_kmh: float = 0.0,
+    class_id: Optional[int] = None,
+    class_name: Optional[str] = None,
+    vehicle_category: Optional[str] = None,
     frame_reference: Optional[str] = None,
     frame_provider: Optional[FrameProvider] = None,
 ) -> AlertEvent:
@@ -144,6 +169,20 @@ def build_anpr_read_alert(
     """
     conf = float(confidence)
     s_kmh = float(speed_kmh)
+    meta = {
+        "tracker_id": int(tracker_id),
+        "plate_number": str(plate),
+        "plate_confidence": float(round(conf, 1)),
+        "vehicle_type": str(vehicle_type),
+        "speed": float(round(s_kmh, 1)),
+    }
+    if class_id is not None:
+        meta["class_id"] = int(class_id)
+    if class_name is not None:
+        meta["class_name"] = str(class_name)
+    if vehicle_category is not None:
+        meta["vehicle_category"] = str(vehicle_category)
+
     return AlertEvent(
         camera_id=camera_id,
         timestamp=datetime.now(timezone.utc),
@@ -157,11 +196,5 @@ def build_anpr_read_alert(
         source_uc=SourceUC.UC4,
         frame_reference=frame_reference,
         frame_provider=frame_provider,
-        metadata={
-            "tracker_id": int(tracker_id),
-            "plate_number": str(plate),
-            "plate_confidence": float(round(conf, 1)),
-            "vehicle_type": str(vehicle_type),
-            "speed": float(round(s_kmh, 1)),
-        },
+        metadata=meta,
     )
