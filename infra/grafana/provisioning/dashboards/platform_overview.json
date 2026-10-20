@@ -1,0 +1,10 @@
+{
+  "id": null,
+  "uid": "innovision-platform-overview",
+  "title": "Platform Overview",
+  "schemaVersion": 38,
+  "version": 1,
+  "panels": [],
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "30s"
+}

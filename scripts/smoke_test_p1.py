@@ -4,6 +4,9 @@ import time
 import asyncpg
 import redis.asyncio as aioredis
 import httpx
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from dotenv import load_dotenv
 
