@@ -11,20 +11,23 @@ from fastapi import APIRouter, HTTPException, Request, Response
 router = APIRouter(prefix="/uc3", tags=["uc3-ppe-detection"])
 
 consumer_manager = None  # Injected from main.py
+standalone_latest_detections: Dict[str, Any] = {}
 
 @router.get("/cameras/{camera_id}/latest-detections")
 async def get_latest_detections(
     camera_id: str,
     session_id: str | None = None,
 ) -> Dict[str, Any]:
-    if consumer_manager is None:
-        raise HTTPException(status_code=503, detail="UC3 service is initializing")
-
-    if hasattr(consumer_manager, "get_latest_detections"):
-        detections_data = consumer_manager.get_latest_detections(camera_id, session_id)
+    detections_data = None
+    if consumer_manager is not None:
+        if hasattr(consumer_manager, "get_latest_detections"):
+            detections_data = consumer_manager.get_latest_detections(camera_id, session_id)
+        else:
+            cache_key = f"{camera_id}:{session_id}" if session_id else camera_id
+            detections_data = consumer_manager.latest_detections.get(cache_key)
     else:
         cache_key = f"{camera_id}:{session_id}" if session_id else camera_id
-        detections_data = consumer_manager.latest_detections.get(cache_key)
+        detections_data = standalone_latest_detections.get(cache_key)
 
     if not detections_data:
         return {
@@ -35,7 +38,7 @@ async def get_latest_detections(
             "detections": [],
             "severity": "ok",
             "violations": [],
-            "violations_only": True,
+            "violations_only": False,
         }
 
     return detections_data
@@ -126,6 +129,7 @@ async def infer_image(camera_id: str, request: Request, violations_only: bool = 
         "zone": None,
     }
 
+    standalone_latest_detections[camera_id] = snapshot
     if consumer_manager:
         consumer_manager.latest_detections[camera_id] = snapshot
 

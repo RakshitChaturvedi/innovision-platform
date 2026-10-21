@@ -1,0 +1,68 @@
+{
+  "system_baseline": {
+    "logical_cpu_cores": 12,
+    "physical_cpu_cores": 10,
+    "total_ram_gb": 15.63,
+    "initial_available_ram_gb": 0.42,
+    "initial_cpu_percent": 20.9
+  },
+  "individual_pipelines": {
+    "uc1": {
+      "port": 8021,
+      "mean_latency_ms": 308.92,
+      "p95_latency_ms": 785.09,
+      "throughput_fps": 3.2,
+      "meets_30fps": false
+    },
+    "uc2": {
+      "port": 8022,
+      "mean_latency_ms": 312.34,
+      "p95_latency_ms": 335.4,
+      "throughput_fps": 3.2,
+      "meets_30fps": false
+    },
+    "uc3": {
+      "port": 8023,
+      "mean_latency_ms": 11094.13,
+      "p95_latency_ms": 17477.49,
+      "throughput_fps": 0.1,
+      "meets_30fps": false
+    },
+    "uc4": {
+      "port": 8024,
+      "mean_latency_ms": 534.86,
+      "p95_latency_ms": 967.72,
+      "throughput_fps": 1.9,
+      "meets_30fps": false
+    }
+  },
+  "concurrent_run": {
+    "total_requests": 20,
+    "total_time_seconds": 23.19,
+    "aggregate_throughput_fps": 0.86,
+    "peak_cpu_percent": 91.5,
+    "per_pipeline_concurrent_latency": {
+      "uc1": {
+        "mean_ms": 1838.93,
+        "p95_ms": 3564.24,
+        "fps": 0.54
+      },
+      "uc2": {
+        "mean_ms": 885.81,
+        "p95_ms": 1709.15,
+        "fps": 1.13
+      },
+      "uc3": {
+        "mean_ms": 4463.02,
+        "p95_ms": 11303.35,
+        "fps": 0.22
+      },
+      "uc4": {
+        "mean_ms": 817.81,
+        "p95_ms": 1660.24,
+        "fps": 1.22
+      }
+    },
+    "per_stream_meets_30fps": false
+  }
+}

@@ -41,22 +41,27 @@ async def lifespan(app: FastAPI):
     logger.info("uc3_service_starting")
 
     # 1. Connect Redis
-    redis_client = aioredis.from_url(f"redis://{REDIS_HOST}:{REDIS_PORT}")
-    await redis_client.ping()
-    logger.info("redis_connected host=%s port=%d", REDIS_HOST, REDIS_PORT)
+    try:
+        redis_client = aioredis.from_url(f"redis://{REDIS_HOST}:{REDIS_PORT}")
+        await redis_client.ping()
+        logger.info("redis_connected host=%s port=%d", REDIS_HOST, REDIS_PORT)
 
-    # 2. Init Publisher & Consumer
-    publisher = UC3EventPublisher(redis_client)
-    consumer_manager = UC3ConsumerManager(
-        redis_client=redis_client,
-        publisher=publisher,
-        camera_registry_url=CAMERA_REGISTRY_URL,
-    )
-    uc3_router.consumer_manager = consumer_manager
+        # 2. Init Publisher & Consumer
+        publisher = UC3EventPublisher(redis_client)
+        consumer_manager = UC3ConsumerManager(
+            redis_client=redis_client,
+            publisher=publisher,
+            camera_registry_url=CAMERA_REGISTRY_URL,
+        )
+        uc3_router.consumer_manager = consumer_manager
 
-    # 3. Start background XREADGROUP loop
-    consumer_task = asyncio.create_task(consumer_manager.run(), name="uc3-consumer")
-    logger.info("uc3_consumer_task_started")
+        # 3. Start background XREADGROUP loop
+        consumer_task = asyncio.create_task(consumer_manager.run(), name="uc3-consumer")
+        logger.info("uc3_consumer_task_started")
+    except Exception as e:
+        logger.warning("Redis unavailable at startup: %s. Operating in standalone HTTP inference mode.", e)
+        # Ensure router can still function
+        uc3_router.consumer_manager = None
 
     try:
         yield

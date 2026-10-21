@@ -718,26 +718,27 @@ async def lifespan(app: FastAPI):
 
     logger.info("uc4_analytics_starting")
 
-    # 1. Redis
-    redis_client = aioredis.from_url(REDIS_URL, decode_responses=False)
-    await redis_client.ping()
-    logger.info("redis_connected")
-
-    # 2. AlertPublisher (FIX #4)
-    publisher = AlertPublisher(redis_client)
-
-    # 3. Load ML models in background
+    # 1. Load ML models in background
     threading.Thread(target=_load_models, daemon=True).start()
 
-    # 4. Start consumer loop
-    async def _frame_callback(frame_event: FrameEvent):
-        await process_frame(frame_event, redis_client, publisher)
+    # 2. Redis & consumer loop
+    try:
+        redis_client = aioredis.from_url(REDIS_URL, decode_responses=False)
+        await redis_client.ping()
+        logger.info("redis_connected")
+        publisher = AlertPublisher(redis_client)
 
-    consumer_task = asyncio.create_task(
-        consume_loop(redis_client, _frame_callback, metrics)
-    )
+        async def _frame_callback(frame_event: FrameEvent):
+            await process_frame(frame_event, redis_client, publisher)
 
-    logger.info("uc4_analytics_started")
+        consumer_task = asyncio.create_task(
+            consume_loop(redis_client, _frame_callback, metrics)
+        )
+        logger.info("uc4_analytics_started")
+    except Exception as e:
+        logger.warning("Redis unavailable at startup: %s. Operating in standalone HTTP mode", e)
+        redis_client = None
+        publisher = None
     yield
 
     # Shutdown
