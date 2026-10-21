@@ -1,0 +1,310 @@
+{
+  "uc1": {
+    "checkpoint": "yolov8n.pt",
+    "total_coco_classes": 80,
+    "person_class_id": 0,
+    "person_class_name": "person",
+    "input_dims": [
+      1200,
+      896
+    ],
+    "detections_count": 5,
+    "inside_zone_count": 4,
+    "outside_zone_count": 1,
+    "detections": [
+      {
+        "cls_id": 0,
+        "cls_name": "person",
+        "conf": 0.923,
+        "xyxy_pixels": [
+          454.1,
+          78.4,
+          749.0,
+          868.1
+        ],
+        "xyxyn_normalized": [
+          0.3784,
+          0.0875,
+          0.6242,
+          0.9689
+        ],
+        "foot_contact": [
+          0.5013,
+          0.9689
+        ],
+        "inside_restricted_zone": false
+      },
+      {
+        "cls_id": 0,
+        "cls_name": "person",
+        "conf": 0.498,
+        "xyxy_pixels": [
+          891.4,
+          278.6,
+          929.2,
+          333.6
+        ],
+        "xyxyn_normalized": [
+          0.7428,
+          0.3109,
+          0.7744,
+          0.3723
+        ],
+        "foot_contact": [
+          0.7586,
+          0.3723
+        ],
+        "inside_restricted_zone": true
+      },
+      {
+        "cls_id": 0,
+        "cls_name": "person",
+        "conf": 0.393,
+        "xyxy_pixels": [
+          1077.4,
+          281.2,
+          1120.7,
+          339.1
+        ],
+        "xyxyn_normalized": [
+          0.8978,
+          0.3139,
+          0.9339,
+          0.3785
+        ],
+        "foot_contact": [
+          0.9159,
+          0.3785
+        ],
+        "inside_restricted_zone": true
+      },
+      {
+        "cls_id": 0,
+        "cls_name": "person",
+        "conf": 0.376,
+        "xyxy_pixels": [
+          1003.8,
+          276.4,
+          1036.7,
+          336.5
+        ],
+        "xyxyn_normalized": [
+          0.8365,
+          0.3085,
+          0.8639,
+          0.3755
+        ],
+        "foot_contact": [
+          0.8502,
+          0.3755
+        ],
+        "inside_restricted_zone": true
+      },
+      {
+        "cls_id": 0,
+        "cls_name": "person",
+        "conf": 0.343,
+        "xyxy_pixels": [
+          962.2,
+          279.1,
+          1004.7,
+          334.2
+        ],
+        "xyxyn_normalized": [
+          0.8018,
+          0.3115,
+          0.8372,
+          0.373
+        ],
+        "foot_contact": [
+          0.8195,
+          0.373
+        ],
+        "inside_restricted_zone": true
+      }
+    ]
+  },
+  "uc2": {
+    "checkpoint": "stubs/uc2_stub/cv_engine/models/best.pt",
+    "classes": {
+      "0": "fire",
+      "1": "smoke",
+      "2": "sparks"
+    },
+    "input_dims": [
+      704,
+      1280
+    ],
+    "orientation": "portrait",
+    "positive_detections_count": 2,
+    "negative_blank_detections_count": 0,
+    "all_coords_valid": true,
+    "sample_sparks_boxes": [
+      {
+        "cls_id": 0,
+        "cls_name": "fire",
+        "conf": 0.692,
+        "xyxy_pixels": [
+          394.1,
+          162.1,
+          412.3,
+          233.8
+        ],
+        "xyxyn_normalized": [
+          0.5598,
+          0.1267,
+          0.5856,
+          0.1827
+        ],
+        "coord_invariant_valid": true
+      },
+      {
+        "cls_id": 0,
+        "cls_name": "fire",
+        "conf": 0.416,
+        "xyxy_pixels": [
+          475.8,
+          258.5,
+          496.8,
+          283.1
+        ],
+        "xyxyn_normalized": [
+          0.6759,
+          0.2019,
+          0.7057,
+          0.2212
+        ],
+        "coord_invariant_valid": true
+      }
+    ]
+  },
+  "uc3": {
+    "checkpoint": "services/uc3/models/best.pt",
+    "classes_count": 13,
+    "class_map": {
+      "0": "gloves",
+      "1": "goggles",
+      "2": "helmet",
+      "3": "mask",
+      "4": "no-gloves",
+      "5": "no-goggles",
+      "6": "no-helmet",
+      "7": "no-mask",
+      "8": "no-shoe",
+      "9": "no-vest",
+      "10": "person",
+      "11": "shoe",
+      "12": "vest"
+    },
+    "positive_detections_count": 5,
+    "violations_count": 0,
+    "compliant_count": 5,
+    "detections": [
+      {
+        "cls_id": 12,
+        "label": "vest",
+        "conf": 0.9,
+        "box": [
+          0.4175,
+          0.2394,
+          0.5909,
+          0.5382
+        ],
+        "is_violation": false
+      },
+      {
+        "cls_id": 10,
+        "label": "person",
+        "conf": 0.756,
+        "box": [
+          0.8947,
+          0.3115,
+          0.9378,
+          0.4083
+        ],
+        "is_violation": false
+      },
+      {
+        "cls_id": 10,
+        "label": "person",
+        "conf": 0.587,
+        "box": [
+          0.835,
+          0.3054,
+          0.8691,
+          0.3928
+        ],
+        "is_violation": false
+      },
+      {
+        "cls_id": 2,
+        "label": "helmet",
+        "conf": 0.479,
+        "box": [
+          0.8139,
+          0.3119,
+          0.8295,
+          0.3377
+        ],
+        "is_violation": false
+      },
+      {
+        "cls_id": 10,
+        "label": "person",
+        "conf": 0.459,
+        "box": [
+          0.8024,
+          0.3102,
+          0.8361,
+          0.3945
+        ],
+        "is_violation": false
+      }
+    ]
+  },
+  "uc4": {
+    "checkpoint": "yolo11n.pt",
+    "distinct_vehicle_classes_mapped": {
+      "1": "Bicycle",
+      "2": "Car",
+      "3": "Motorcycle",
+      "5": "Bus",
+      "7": "Truck"
+    },
+    "input_dims": [
+      1280,
+      720
+    ],
+    "detections_count": 2,
+    "detections": [
+      {
+        "coco_cls_id": 2,
+        "coco_name": "car",
+        "vehicle_type": "Car",
+        "vehicle_category": "car",
+        "conf": 0.879,
+        "box": [
+          0.1943,
+          0.319,
+          0.4089,
+          0.6612
+        ]
+      },
+      {
+        "coco_cls_id": 2,
+        "coco_name": "car",
+        "vehicle_type": "Car",
+        "vehicle_category": "car",
+        "conf": 0.708,
+        "box": [
+          0.3246,
+          0.2119,
+          0.502,
+          0.5046
+        ]
+      }
+    ],
+    "speed_calibrated_without_homography": false,
+    "default_uncalibrated_speed_kmh": 0.0
+  }
+}

@@ -1,0 +1,167 @@
+{
+  "git": {
+    "branch": "uc1-uc2-uc3-uc4",
+    "head_commit": "a58b6e38223346eb3f9c425af244056e5e3cb93d",
+    "recent_commits": [
+      "a58b6e3 feat(acceptance): add browser-level CameraOverlay verification suite and reconciled CPU benchmarks",
+      "39ba9a1 fix(uc2-uc3-uc4): resolve coordinate math, add isolation tests, fix UC4 class mappings and UC3 endpoint",
+      "975d83c feat(acceptance): add real media acceptance suite and visual detection proof for UC1-UC4"
+    ],
+    "is_clean": false,
+    "uncommitted_files": [
+      "?? scratch/audit_local_host.py"
+    ],
+    "remote": [
+      "origin\thttps://github.com/RakshitChaturvedi/innovision-platform (fetch)",
+      "origin\thttps://github.com/RakshitChaturvedi/innovision-platform (push)"
+    ],
+    "status_summary": [
+      "On branch uc1-uc2-uc3-uc4",
+      "Your branch is up to date with 'origin/uc1-uc2-uc3-uc4'.",
+      "",
+      "Untracked files:",
+      "  (use \"git add <file>...\" to include in what will be committed)"
+    ]
+  },
+  "binaries": {
+    "python": "3.14.3 (tags/v3.14.3:323c59a, Feb  3 2026, 16:04:56) [MSC v.1944 64 bit (AMD64)]",
+    "node": "v24.13.0",
+    "npm": "[WinError 2] The system cannot find the file specified",
+    "docker_path": "C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.EXE",
+    "docker_version": "Docker version 29.8.1, build 4a63305",
+    "psql_path": null,
+    "redis_server_path": null
+  },
+  "docker_daemon": {
+    "running": false,
+    "error": "failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine; check if the path is correct and if the daemon is running: open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified."
+  },
+  "ports": {
+    "8020": {
+      "description": "Ingestion / Stream Gateway",
+      "is_open": false
+    },
+    "8021": {
+      "description": "UC1 Intrusion Detection",
+      "is_open": true
+    },
+    "8022": {
+      "description": "UC2 Fire/Sparks Detection",
+      "is_open": true
+    },
+    "8023": {
+      "description": "UC3 PPE Compliance",
+      "is_open": true
+    },
+    "8024": {
+      "description": "UC4 Traffic & ANPR",
+      "is_open": true
+    },
+    "5173": {
+      "description": "Vite Dashboard Frontend",
+      "is_open": true
+    },
+    "5432": {
+      "description": "PostgreSQL Standard Port",
+      "is_open": false
+    },
+    "5433": {
+      "description": "PostgreSQL Innovision Compose Port",
+      "is_open": false
+    },
+    "6379": {
+      "description": "Redis Streams Broker",
+      "is_open": false
+    },
+    "9000": {
+      "description": "MinIO S3 Storage",
+      "is_open": false
+    },
+    "8554": {
+      "description": "MediaMTX RTSP Server",
+      "is_open": false
+    }
+  },
+  "active_processes": [
+    {
+      "pid": 2896,
+      "name": "language_server_windows_x64.exe",
+      "cmdline": "c:\\Users\\Sai Charan\\AppData\\Local\\Programs\\Antigravity IDE\\resources\\app\\extensions\\antigravity\\bin\\language_server_windows_x64.exe --enable_lsp --csr"
+    },
+    {
+      "pid": 15132,
+      "name": "node.exe",
+      "cmdline": "C:\\Program Files\\nodejs\\node.exe C:\\Program Files\\nodejs/node_modules/npm/bin/npm-cli.js run dev -- --host 127.0.0.1 --port 5173"
+    },
+    {
+      "pid": 23380,
+      "name": "node.exe",
+      "cmdline": "node C:\\Users\\Sai Charan\\Desktop\\innovision-platform\\services\\dashboard\\node_modules\\.bin\\\\..\\vite\\bin\\vite.js --host 127.0.0.1 --port 5173"
+    },
+    {
+      "pid": 24276,
+      "name": "cmd.exe",
+      "cmdline": "C:\\Windows\\system32\\cmd.exe /d /s /c vite --host 127.0.0.1 --port 5173"
+    }
+  ],
+  "models": {
+    "yolov8n.pt": {
+      "description": "UC1 / Base Checkpoint",
+      "exists": true,
+      "size_bytes": 6549796,
+      "sha256_short": "f59b3d833e2ff32e"
+    },
+    "stubs/uc2_stub/cv_engine/models/best.pt": {
+      "description": "UC2 Fire/Sparks Checkpoint",
+      "exists": true,
+      "size_bytes": 20284101,
+      "sha256_short": "227db351bf5bdeb2"
+    },
+    "services/uc3/models/best.pt": {
+      "description": "UC3 PPE Compliance Checkpoint",
+      "exists": true,
+      "size_bytes": 44039321,
+      "sha256_short": "1e991acdd976325e"
+    },
+    "yolo11n.pt": {
+      "description": "UC4 Vehicle Checkpoint",
+      "exists": true,
+      "size_bytes": 5613764,
+      "sha256_short": "0ebbc80d4a7680d1"
+    }
+  },
+  "test_media": {
+    "test_data/videos/uc2.mp4": {
+      "exists": true,
+      "size_bytes": 3891492
+    },
+    "test_data/videos/uc4.mp4": {
+      "exists": true,
+      "size_bytes": 3246287
+    },
+    "services/uc3/sample_worker.jpg": {
+      "exists": true,
+      "size_bytes": 844774
+    },
+    "services/dashboard/public/test_media/uc1.jpg": {
+      "exists": true,
+      "size_bytes": 401270
+    },
+    "services/dashboard/public/test_media/uc2_portrait.jpg": {
+      "exists": true,
+      "size_bytes": 253211
+    },
+    "services/dashboard/public/test_media/uc3.jpg": {
+      "exists": true,
+      "size_bytes": 401270
+    },
+    "services/dashboard/public/test_media/uc4_landscape.jpg": {
+      "exists": true,
+      "size_bytes": 169500
+    },
+    "services/dashboard/public/test_media/blank.jpg": {
+      "exists": true,
+      "size_bytes": 15026
+    }
+  }
+}
