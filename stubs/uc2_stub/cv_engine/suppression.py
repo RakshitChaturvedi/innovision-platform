@@ -91,6 +91,46 @@ def _is_led_reflection(roi_gray: np.ndarray, roi_hsv: np.ndarray) -> Tuple[bool,
     return False, ""
 
 
+def _is_small_light_or_indicator(roi_gray: np.ndarray, roi_hsv: np.ndarray, det_type: str = "") -> Tuple[bool, str]:
+    """Small lamp, LED indicator, or tiny spotlight: round/compact bright core without flying spark characteristics."""
+    if det_type not in ("sparks", "spark"):
+        return False, ""
+    h, w = roi_gray.shape[:2]
+    area = h * w
+    if area > 3600:
+        return False, ""
+    max_val = float(np.max(roi_hsv[:, :, 2]))
+    if max_val < 180:
+        return False, ""
+    bright = (roi_gray > 190).astype(np.uint8)
+    contours, _ = cv2.findContours(bright, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for c in contours:
+        c_area = cv2.contourArea(c)
+        if c_area < 6:
+            continue
+        peri = cv2.arcLength(c, True)
+        if peri > 0:
+            circularity = 4 * np.pi * c_area / (peri * peri)
+            x, y, cw, ch = cv2.boundingRect(c)
+            aspect = max(cw, ch) / max(min(cw, ch), 1)
+            if circularity > 0.40 and aspect < 1.7 and c_area > 8:
+                return True, f"small_light_or_indicator(area={c_area:.0f},circ={circularity:.2f},aspect={aspect:.2f})"
+    return False, ""
+
+
+def _is_specular_surface_reflection(roi_gray: np.ndarray, roi_hsv: np.ndarray, det_type: str = "") -> Tuple[bool, str]:
+    """Light reflections, surface glints, and glare on polished floors or metallic equipment."""
+    if det_type not in ("sparks", "spark"):
+        return False, ""
+    avg_sat = float(np.mean(roi_hsv[:, :, 1]))
+    avg_val = float(np.mean(roi_hsv[:, :, 2]))
+    max_val = float(np.max(roi_hsv[:, :, 2]))
+    bright_ratio = float(np.count_nonzero(roi_gray > 200)) / max(roi_gray.size, 1)
+    if max_val > 210 and avg_sat < 50.0 and (bright_ratio > 0.12 or avg_val > 130.0):
+        return True, f"specular_reflection(val={avg_val:.0f},sat={avg_sat:.0f},ratio={bright_ratio:.2f})"
+    return False, ""
+
+
 def _entropy(gray: np.ndarray) -> float:
     hist = cv2.calcHist([gray], [0], None, [256], [0, 256])
     hist = hist.ravel() / (hist.sum() + 1e-7)
@@ -116,11 +156,44 @@ class FalseAlarmSuppressor:
 
         roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
         roi_hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-
         # Check sunlight / flare
         is_sunlight, reason = _is_sunlight_reflection(roi_gray, roi_hsv, det_type=det_type, hsv_score=hsv_score)
         if is_sunlight:
             return FalseAlarmDecision(suppressed=True, reason=reason, category="reflection")
+
+        # Motion analysis if previous frame ROI is available
+        has_dynamic_motion = False
+        if prev_frame_roi is not None and prev_frame_roi.shape == roi.shape:
+            prev_gray = cv2.cvtColor(prev_frame_roi, cv2.COLOR_BGR2GRAY)
+            diff = cv2.absdiff(roi_gray, prev_gray)
+            motion_ratio = float(np.count_nonzero(diff > 15)) / max(diff.size, 1)
+            spark_diff = cv2.absdiff(roi_gray, prev_gray)
+            spark_motion = float(np.count_nonzero(spark_diff > 12)) / max(spark_diff.size, 1)
+            if spark_motion >= 0.008:
+                has_dynamic_motion = True
+
+            # If fire/smoke has zero motion over multiple frames and low confidence, suppress
+            if motion_ratio < 0.001 and yolo_confidence < 0.35 and hsv_score < 0.4:
+                return FalseAlarmDecision(suppressed=True, reason="static_scene_low_confidence", category="static")
+
+            # Sparks are dynamic fast-moving particles; static ceiling lights or screens have near-zero motion
+            if det_type in ("sparks", "spark") and spark_motion < 0.008:
+                return FalseAlarmDecision(
+                    suppressed=True,
+                    reason=f"stationary_spark_fixture (motion={spark_motion:.4f})",
+                    category="static_spark",
+                )
+
+        # Check small lights / indicator LEDs (stationary or single-frame round bright spots)
+        if not has_dynamic_motion:
+            is_small_light, reason = _is_small_light_or_indicator(roi_gray, roi_hsv, det_type=det_type)
+            if is_small_light:
+                return FalseAlarmDecision(suppressed=True, reason=reason, category="small_light")
+
+            # Check specular floor / metallic reflections
+            is_spec_refl, reason = _is_specular_surface_reflection(roi_gray, roi_hsv, det_type=det_type)
+            if is_spec_refl:
+                return FalseAlarmDecision(suppressed=True, reason=reason, category="specular_reflection")
 
         # Check fog / cloud
         is_fog, reason = _is_fog_or_cloud(roi_gray, roi_hsv)
@@ -137,26 +210,6 @@ class FalseAlarmSuppressor:
         if is_led:
             return FalseAlarmDecision(suppressed=True, reason=reason, category="led")
 
-        # Check for static false alarms using motion if previous frame ROI is available
-        if prev_frame_roi is not None and prev_frame_roi.shape == roi.shape:
-            prev_gray = cv2.cvtColor(prev_frame_roi, cv2.COLOR_BGR2GRAY)
-            diff = cv2.absdiff(roi_gray, prev_gray)
-            motion_ratio = float(np.count_nonzero(diff > 15)) / max(diff.size, 1)
-            # If fire/smoke has zero motion over multiple frames and low confidence, suppress
-            if motion_ratio < 0.001 and yolo_confidence < 0.35 and hsv_score < 0.4:
-                return FalseAlarmDecision(suppressed=True, reason="static_scene_low_confidence", category="static")
-
-            # Sparks are dynamic fast-moving particles; static ceiling lights or screens have near-zero motion
-            if det_type in ("sparks", "spark"):
-                spark_diff = cv2.absdiff(roi_gray, prev_gray)
-                spark_motion = float(np.count_nonzero(spark_diff > 12)) / max(spark_diff.size, 1)
-                if spark_motion < 0.008:
-                    return FalseAlarmDecision(
-                        suppressed=True,
-                        reason=f"stationary_spark_fixture (motion={spark_motion:.4f})",
-                        category="static_spark",
-                    )
-
         return FalseAlarmDecision(suppressed=False)
 
 
@@ -165,6 +218,8 @@ SUPPRESSION_RULES = [
     ("reflection", _is_sunlight_reflection),
     ("led", _is_led_reflection),
     ("dust_steam", _is_dust_or_steam),
+    ("small_light", _is_small_light_or_indicator),
+    ("specular_reflection", _is_specular_surface_reflection),
 ]
 
 

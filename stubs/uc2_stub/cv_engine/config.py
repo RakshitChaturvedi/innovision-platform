@@ -84,6 +84,7 @@ class UC2Config(BaseSettings):
     inference_size: int = Field(640, alias="UC2_INFERENCE_SIZE")
     conf_threshold: float = Field(0.20, alias="UC2_CONF_THRESHOLD")
     iou_threshold: float = Field(0.45, alias="UC2_IOU_THRESHOLD")
+    enable_cv_sparks: bool = Field(False, alias="UC2_ENABLE_CV_SPARKS")
 
     # ── Camera Health & Diagnostics ───────────────────────────────────────────
     camera_stale_threshold_s: float = Field(15.0, alias="UC2_CAMERA_STALE_THRESHOLD_S")

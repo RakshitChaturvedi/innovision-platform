@@ -422,6 +422,7 @@ async def infer_image_endpoint(camera_id: str, request: Request):
         frame_seq=0,
         frame_bgr=frame,
         prev_frame_bgr=None,
+        single_frame=True,
     )
 
     dets_payload = []

@@ -217,51 +217,90 @@ class DeterministicVerifier:
                 scores=scores,
             )
 
-        # Connected components for spark particles & floodlight/screen checks
-        num_labels, _labels, stats, _centroids = cv2.connectedComponentsWithStats(spark_mask)
-        comp_areas = stats[1:, cv2.CC_STAT_AREA] if num_labels > 1 else [0]
-        max_comp_area = int(max(comp_areas)) if len(comp_areas) > 0 else 0
-        max_comp_ratio = (max_comp_area / float(spark_pixels)) if spark_pixels > 0 else 0.0
-
-        is_spark_shower = (
-            num_labels >= 4 and spark_pixels >= 15 and (max_comp_ratio <= 0.65 or num_labels >= 8)
-        )
-
-        # Single isolated spark size check: genuine sparks are compact particles
-        if not is_spark_shower and (roi_bgr.shape[0] > 60 or roi_bgr.shape[1] > 60 or total_px > 2500):
+        # Hard upper limit on spark detection box: flying sparks/showers cannot span entire rooms/floors
+        if roi_bgr.shape[0] > 70 or roi_bgr.shape[1] > 70 or total_px > 3600:
             return VerificationResult(
                 passed=False,
                 rejection_reason=f"spark_box_too_large ({roi_bgr.shape[1]}x{roi_bgr.shape[0]}, area={total_px})",
                 scores=scores,
             )
 
+        # Connected components analysis for spark particles vs light fixtures/LEDs
+        num_labels, _labels, stats, _centroids = cv2.connectedComponentsWithStats(spark_mask)
+        num_particles = max(0, num_labels - 1)
+        comp_areas = stats[1:, cv2.CC_STAT_AREA] if num_particles > 0 else [0]
+        max_comp_area = int(max(comp_areas)) if len(comp_areas) > 0 else 0
+        max_comp_ratio = (max_comp_area / float(spark_pixels)) if spark_pixels > 0 else 0.0
+
+        active_spark_hsv = roi_hsv[spark_mask > 0] if spark_pixels > 0 else None
+        avg_spark_sat = (
+            float(np.mean(active_spark_hsv[:, 1]))
+            if active_spark_hsv is not None and len(active_spark_hsv) > 0
+            else 0.0
+        )
+
+        # Genuine spark showers must consist strictly of tiny incandescent particles
+        # If any component is a large illuminated blob (>35 px), it is a lamp/screen/reflection, not a shower!
+        is_spark_shower = (
+            num_particles >= 2
+            and spark_pixels >= 4
+            and max_comp_area <= 35
+            and std_val >= 18.0
+            and (max_val - avg_val) >= 25.0
+        )
+
+        # Insufficient bright spark pixels
+        if spark_pixels < 3:
+            return VerificationResult(
+                passed=False,
+                rejection_reason="insufficient_spark_pixels",
+                scores=scores,
+            )
+
+        # Check for genuine flying spark streak (motion trail caused by high-velocity incandescent particle)
+        is_spark_streak = False
+        if num_particles == 1:
+            cw = stats[1, cv2.CC_STAT_WIDTH]
+            ch = stats[1, cv2.CC_STAT_HEIGHT]
+            c_area = stats[1, cv2.CC_STAT_AREA]
+            elongation = max(cw, ch) / max(min(cw, ch), 1)
+            # A narrow elongated streak: aspect ratio >= 2.0, narrow width/thickness <= 6 px, compact area <= 60 px
+            if elongation >= 2.0 and min(cw, ch) <= 6 and c_area <= 60:
+                is_spark_streak = True
+
+        # Check for static ceiling lamp fixture / high-bay light / LED troffer / screen
+        if not is_spark_streak and (max_comp_area >= 50 or (max_comp_area > 35 and max_comp_ratio > 0.40)):
+            return VerificationResult(
+                passed=False,
+                rejection_reason=f"lamp_or_light_fixture (comp_area={max_comp_area}, sat={avg_spark_sat:.1f})",
+                scores=scores,
+            )
+
+        # Check for small lights, LED indicators, or isolated round bright spots:
+        if not is_spark_streak and num_particles == 1:
+            cw = stats[1, cv2.CC_STAT_WIDTH]
+            ch = stats[1, cv2.CC_STAT_HEIGHT]
+            c_area = stats[1, cv2.CC_STAT_AREA]
+            elongation = max(cw, ch) / max(min(cw, ch), 1)
+            if c_area >= 6 and elongation < 1.7:
+                # Round or square-ish emitter (small lamp, LED, indicator)
+                return VerificationResult(
+                    passed=False,
+                    rejection_reason=f"isolated_light_or_led (area={c_area}, elongation={elongation:.2f})",
+                    scores=scores,
+                )
+
         # Reject diffuse smoke cloud or overcast daylight patch misclassified as sparks
-        if spark_pixels > 0 and not is_spark_shower:
-            active_spark_hsv = roi_hsv[spark_mask > 0]
-            avg_spark_sat = float(np.mean(active_spark_hsv[:, 1]))
-            # If bright pixels are desaturated (gray/white smoke or cloud)
-            if avg_spark_sat < 55.0 and total_px > 10000:
+        if spark_pixels > 0 and not is_spark_shower and not is_spark_streak:
+            if avg_spark_sat < 55.0 and total_px > 2500:
                 return VerificationResult(
                     passed=False,
                     rejection_reason=f"desaturated_smoke_or_cloud (avg_sat={avg_spark_sat:.1f})",
                     scores=scores,
                 )
 
-        # Check for static ceiling lamp fixture / high-bay light / LED troffer
-        if num_labels > 1 and not is_spark_shower:
-            active_spark_hsv = roi_hsv[spark_mask > 0]
-            avg_spark_sat = float(np.mean(active_spark_hsv[:, 1])) if spark_pixels > 0 else 0.0
-            if max_comp_area >= 60 and (avg_spark_sat < 65.0) and (max_comp_area > 90 or max_comp_ratio > 0.35):
-                return VerificationResult(
-                    passed=False,
-                    rejection_reason=f"lamp_or_light_fixture (comp_area={max_comp_area}, sat={avg_spark_sat:.1f})",
-                    scores=scores,
-                )
-
         # Check for illuminated computer monitors / machine control displays
-        if total_px > 200 and max_comp_area > 70 and not is_spark_shower:
-            active_spark_hsv = roi_hsv[spark_mask > 0]
-            avg_spark_sat = float(np.mean(active_spark_hsv[:, 1])) if spark_pixels > 0 else 0.0
+        if total_px > 200 and max_comp_area > 30 and not is_spark_shower and not is_spark_streak:
             if avg_spark_sat < 70.0:
                 return VerificationResult(
                     passed=False,
@@ -269,16 +308,22 @@ class DeterministicVerifier:
                     scores=scores,
                 )
 
-        # Check for reflective white surfaces / metallic packaging
-        if total_px > 500 and not is_spark_shower:
-            active_spark_hsv = roi_hsv[spark_mask > 0] if spark_pixels > 0 else None
-            avg_spark_sat = float(np.mean(active_spark_hsv[:, 1])) if active_spark_hsv is not None and len(active_spark_hsv) > 0 else 0.0
-            if avg_val > 120.0 and avg_spark_sat < 45.0:
+        # Check for reflective white surfaces / specular metallic glare
+        if (total_px > 400 or avg_val > 110.0) and not is_spark_shower and not is_spark_streak:
+            if avg_spark_sat < 45.0 and spark_ratio < 0.60:
                 return VerificationResult(
                     passed=False,
                     rejection_reason=f"reflective_surface_or_box (avg_val={avg_val:.1f}, sat={avg_spark_sat:.1f})",
                     scores=scores,
                 )
+
+        # If it's neither a multi-particle shower nor an elongated streak nor tiny particles
+        if not is_spark_shower and not is_spark_streak and max_comp_area > 20:
+            return VerificationResult(
+                passed=False,
+                rejection_reason=f"non_spark_morphology (area={max_comp_area})",
+                scores=scores,
+            )
 
         spark_score = round(min(1.0, 0.40 + (std_val / 64.0) * 0.35 + (max_val / 255.0) * 0.25), 4)
         return VerificationResult(

@@ -1,6 +1,6 @@
 {
   "uc1_production_endpoint": {
-    "endpoint": "/uc1/cameras/f2175acd-1a25-488c-9969-ad083b6e3116/infer-image",
+    "endpoint": "/uc1/cameras/e3596b2e-1e96-41fd-9ac3-d941b141cd56/infer-image",
     "status_code": 200,
     "input_dims": [
       1200,
@@ -99,484 +99,59 @@
     ]
   },
   "uc2_production_endpoint": {
-    "endpoint": "/uc2/cameras/8e79ca05-005a-461f-b1ae-54b31dc08eb2/infer-image",
+    "endpoint": "/uc2/cameras/6089f41e-b74e-432c-a5fa-bbfdabfb7c59/infer-image",
     "status_code": 200,
     "input_dims": [
       704,
       1280
     ],
     "checkpoint": "stubs/uc2_stub/cv_engine/models/best.pt",
-    "positive_detections_count": 27,
+    "positive_detections_count": 2,
     "negative_blank_detections_count": 0,
     "hazard_flags": {
-      "fire_detected": false,
+      "fire_detected": true,
       "smoke_detected": false,
-      "sparks_detected": true
+      "sparks_detected": false
     },
     "detections": [
       {
         "track_id": 1,
         "bbox": {
-          "x1": 0.8026,
-          "y1": 0.9867,
-          "x2": 0.9574,
-          "y2": 1.0
+          "x1": 0.5597,
+          "y1": 0.1266,
+          "x2": 0.5852,
+          "y2": 0.182
         },
-        "label": "SPARKS",
-        "color": "#FFFF00",
+        "label": "FIRE",
+        "color": "#FF0000",
         "metadata": {
-          "confidence": 0.8159,
-          "raw_class": "sparks",
+          "confidence": 0.6626,
+          "raw_class": "fire",
           "zone": "Full View",
-          "severity": "medium"
+          "severity": "high"
         }
       },
       {
         "track_id": 2,
         "bbox": {
-          "x1": 0.6065,
-          "y1": 0.9859,
-          "x2": 0.7457,
-          "y2": 1.0
+          "x1": 0.6747,
+          "y1": 0.2016,
+          "x2": 0.7045,
+          "y2": 0.2203
         },
-        "label": "SPARKS",
-        "color": "#FFFF00",
+        "label": "FIRE",
+        "color": "#FF0000",
         "metadata": {
-          "confidence": 0.7637,
-          "raw_class": "sparks",
+          "confidence": 0.5415,
+          "raw_class": "fire",
           "zone": "Full View",
           "severity": "medium"
-        }
-      },
-      {
-        "track_id": 3,
-        "bbox": {
-          "x1": 0.9048,
-          "y1": 0.9313,
-          "x2": 0.9545,
-          "y2": 0.9609
-        },
-        "label": "SPARKS",
-        "color": "#FFFF00",
-        "metadata": {
-          "confidence": 0.849,
-          "raw_class": "sparks",
-          "zone": "Full View",
-          "severity": "medium"
-        }
-      },
-      {
-        "track_id": 4,
-        "bbox": {
-          "x1": 0.9403,
-          "y1": 0.8727,
-          "x2": 0.9957,
-          "y2": 0.9156
-        },
-        "label": "SPARKS",
-        "color": "#FFFF00",
-        "metadata": {
-          "confidence": 0.8455,
-          "raw_class": "sparks",
-          "zone": "Full View",
-          "severity": "medium"
-        }
-      },
-      {
-        "track_id": 5,
-        "bbox": {
-          "x1": 0.7003,
-          "y1": 0.8344,
-          "x2": 0.7514,
-          "y2": 0.8586
-        },
-        "label": "SPARKS",
-        "color": "#FFFF00",
-        "metadata": {
-          "confidence": 0.8192,
-          "raw_class": "sparks",
-          "zone": "Full View",
-          "severity": "medium"
-        }
-      },
-      {
-        "track_id": 6,
-        "bbox": {
-          "x1": 0.2074,
-          "y1": 0.7219,
-          "x2": 0.7543,
-          "y2": 0.9094
-        },
-        "label": "SPARKS",
-        "color": "#FFFF00",
-        "metadata": {
-          "confidence": 0.8843,
-          "raw_class": "sparks",
-          "zone": "Full View",
-          "severity": "high"
-        }
-      },
-      {
-        "track_id": 7,
-        "bbox": {
-          "x1": 0.0,
-          "y1": 0.6492,
-          "x2": 1.0,
-          "y2": 0.7484
-        },
-        "label": "SPARKS",
-        "color": "#FFFF00",
-        "metadata": {
-          "confidence": 0.8915,
-          "raw_class": "sparks",
-          "zone": "Full View",
-          "severity": "high"
-        }
-      },
-      {
-        "track_id": 8,
-        "bbox": {
-          "x1": 0.5866,
-          "y1": 0.5,
-          "x2": 0.6349,
-          "y2": 0.5258
-        },
-        "label": "SPARKS",
-        "color": "#FFFF00",
-        "metadata": {
-          "confidence": 0.7716,
-          "raw_class": "sparks",
-          "zone": "Full View",
-          "severity": "medium"
-        }
-      },
-      {
-        "track_id": 9,
-        "bbox": {
-          "x1": 0.4105,
-          "y1": 0.4977,
-          "x2": 0.4616,
-          "y2": 0.5437
-        },
-        "label": "SPARKS",
-        "color": "#FFFF00",
-        "metadata": {
-          "confidence": 0.8104,
-          "raw_class": "sparks",
-          "zone": "Full View",
-          "severity": "medium"
-        }
-      },
-      {
-        "track_id": 10,
-        "bbox": {
-          "x1": 0.4716,
-          "y1": 0.493,
-          "x2": 0.581,
-          "y2": 0.5477
-        },
-        "label": "SPARKS",
-        "color": "#FFFF00",
-        "metadata": {
-          "confidence": 0.8829,
-          "raw_class": "sparks",
-          "zone": "Full View",
-          "severity": "high"
-        }
-      },
-      {
-        "track_id": 11,
-        "bbox": {
-          "x1": 0.4077,
-          "y1": 0.4266,
-          "x2": 0.5639,
-          "y2": 0.468
-        },
-        "label": "SPARKS",
-        "color": "#FFFF00",
-        "metadata": {
-          "confidence": 0.8598,
-          "raw_class": "sparks",
-          "zone": "Full View",
-          "severity": "high"
-        }
-      },
-      {
-        "track_id": 12,
-        "bbox": {
-          "x1": 0.294,
-          "y1": 0.3344,
-          "x2": 0.4418,
-          "y2": 0.3664
-        },
-        "label": "SPARKS",
-        "color": "#FFFF00",
-        "metadata": {
-          "confidence": 0.8689,
-          "raw_class": "sparks",
-          "zone": "Full View",
-          "severity": "high"
-        }
-      },
-      {
-        "track_id": 13,
-        "bbox": {
-          "x1": 0.4858,
-          "y1": 0.3258,
-          "x2": 0.5866,
-          "y2": 0.3937
-        },
-        "label": "SPARKS",
-        "color": "#FFFF00",
-        "metadata": {
-          "confidence": 0.8572,
-          "raw_class": "sparks",
-          "zone": "Full View",
-          "severity": "high"
-        }
-      },
-      {
-        "track_id": 14,
-        "bbox": {
-          "x1": 0.6705,
-          "y1": 0.3086,
-          "x2": 0.7358,
-          "y2": 0.3391
-        },
-        "label": "SPARKS",
-        "color": "#FFFF00",
-        "metadata": {
-          "confidence": 0.8651,
-          "raw_class": "sparks",
-          "zone": "Full View",
-          "severity": "high"
-        }
-      },
-      {
-        "track_id": 15,
-        "bbox": {
-          "x1": 0.0,
-          "y1": 0.307,
-          "x2": 0.2983,
-          "y2": 0.3688
-        },
-        "label": "SPARKS",
-        "color": "#FFFF00",
-        "metadata": {
-          "confidence": 0.8915,
-          "raw_class": "sparks",
-          "zone": "Full View",
-          "severity": "high"
-        }
-      },
-      {
-        "track_id": 16,
-        "bbox": {
-          "x1": 0.5114,
-          "y1": 0.2703,
-          "x2": 0.6122,
-          "y2": 0.3047
-        },
-        "label": "SPARKS",
-        "color": "#FFFF00",
-        "metadata": {
-          "confidence": 0.8043,
-          "raw_class": "sparks",
-          "zone": "Full View",
-          "severity": "medium"
-        }
-      },
-      {
-        "track_id": 17,
-        "bbox": {
-          "x1": 0.0597,
-          "y1": 0.25,
-          "x2": 0.1207,
-          "y2": 0.3016
-        },
-        "label": "SPARKS",
-        "color": "#FFFF00",
-        "metadata": {
-          "confidence": 0.8231,
-          "raw_class": "sparks",
-          "zone": "Full View",
-          "severity": "medium"
-        }
-      },
-      {
-        "track_id": 18,
-        "bbox": {
-          "x1": 0.3281,
-          "y1": 0.2344,
-          "x2": 0.4247,
-          "y2": 0.2695
-        },
-        "label": "SPARKS",
-        "color": "#FFFF00",
-        "metadata": {
-          "confidence": 0.8686,
-          "raw_class": "sparks",
-          "zone": "Full View",
-          "severity": "high"
-        }
-      },
-      {
-        "track_id": 19,
-        "bbox": {
-          "x1": 0.652,
-          "y1": 0.2117,
-          "x2": 0.7017,
-          "y2": 0.2367
-        },
-        "label": "SPARKS",
-        "color": "#FFFF00",
-        "metadata": {
-          "confidence": 0.8671,
-          "raw_class": "sparks",
-          "zone": "Full View",
-          "severity": "high"
-        }
-      },
-      {
-        "track_id": 20,
-        "bbox": {
-          "x1": 0.2983,
-          "y1": 0.1977,
-          "x2": 0.4077,
-          "y2": 0.232
-        },
-        "label": "SPARKS",
-        "color": "#FFFF00",
-        "metadata": {
-          "confidence": 0.8343,
-          "raw_class": "sparks",
-          "zone": "Full View",
-          "severity": "medium"
-        }
-      },
-      {
-        "track_id": 21,
-        "bbox": {
-          "x1": 0.1122,
-          "y1": 0.1648,
-          "x2": 0.2415,
-          "y2": 0.2602
-        },
-        "label": "SPARKS",
-        "color": "#FFFF00",
-        "metadata": {
-          "confidence": 0.8701,
-          "raw_class": "sparks",
-          "zone": "Full View",
-          "severity": "high"
-        }
-      },
-      {
-        "track_id": 22,
-        "bbox": {
-          "x1": 0.517,
-          "y1": 0.1367,
-          "x2": 0.5866,
-          "y2": 0.1695
-        },
-        "label": "SPARKS",
-        "color": "#FFFF00",
-        "metadata": {
-          "confidence": 0.848,
-          "raw_class": "sparks",
-          "zone": "Full View",
-          "severity": "medium"
-        }
-      },
-      {
-        "track_id": 23,
-        "bbox": {
-          "x1": 0.7358,
-          "y1": 0.0617,
-          "x2": 0.8537,
-          "y2": 0.1219
-        },
-        "label": "SPARKS",
-        "color": "#FFFF00",
-        "metadata": {
-          "confidence": 0.8659,
-          "raw_class": "sparks",
-          "zone": "Full View",
-          "severity": "high"
-        }
-      },
-      {
-        "track_id": 24,
-        "bbox": {
-          "x1": 0.1009,
-          "y1": 0.0586,
-          "x2": 0.2131,
-          "y2": 0.1234
-        },
-        "label": "SPARKS",
-        "color": "#FFFF00",
-        "metadata": {
-          "confidence": 0.8622,
-          "raw_class": "sparks",
-          "zone": "Full View",
-          "severity": "high"
-        }
-      },
-      {
-        "track_id": 25,
-        "bbox": {
-          "x1": 0.2727,
-          "y1": 0.043,
-          "x2": 0.3892,
-          "y2": 0.1227
-        },
-        "label": "SPARKS",
-        "color": "#FFFF00",
-        "metadata": {
-          "confidence": 0.8534,
-          "raw_class": "sparks",
-          "zone": "Full View",
-          "severity": "high"
-        }
-      },
-      {
-        "track_id": 26,
-        "bbox": {
-          "x1": 0.2188,
-          "y1": 0.0008,
-          "x2": 0.7031,
-          "y2": 0.1648
-        },
-        "label": "SPARKS",
-        "color": "#FFFF00",
-        "metadata": {
-          "confidence": 0.8659,
-          "raw_class": "sparks",
-          "zone": "Full View",
-          "severity": "high"
-        }
-      },
-      {
-        "track_id": 27,
-        "bbox": {
-          "x1": 0.0,
-          "y1": 0.0,
-          "x2": 0.4176,
-          "y2": 0.0586
-        },
-        "label": "SPARKS",
-        "color": "#FFFF00",
-        "metadata": {
-          "confidence": 0.8828,
-          "raw_class": "sparks",
-          "zone": "Full View",
-          "severity": "high"
         }
       }
     ]
   },
   "uc3_production_endpoint": {
-    "endpoint": "/uc3/cameras/0817d82f-c78a-408e-844c-65b554d32720/infer-image",
+    "endpoint": "/uc3/cameras/634453af-3e23-4fe9-8fbf-7b4a4ca04811/infer-image",
     "status_code": 200,
     "input_dims": [
       1200,
@@ -637,7 +212,7 @@
     ]
   },
   "uc4_production_endpoint": {
-    "endpoint": "/uc4/cameras/7a5d406e-e2af-4310-8e7a-4da746cf9068/infer-image",
+    "endpoint": "/uc4/cameras/1373eaf7-386b-4003-8357-82f70a6710b8/infer-image",
     "status_code": 200,
     "input_dims": [
       1280,
