@@ -17,6 +17,8 @@ class StreamDecoder:
         self._process: Optional[asyncio.subprocess.Process] = None
 
     def _build_command(self) -> list[str]:
+        if self.source.startswith("upload://"):
+            raise ValueError(f"Cannot decode stream for upload-only camera source: {self.source}. Uploaded videos must be processed via VideoSessionManager.")
         is_rtsp = self.source.startswith("rtsp://")
         is_file = not is_rtsp
         cmd = ["ffmpeg", "-loglevel", "error"]

@@ -5,6 +5,9 @@ import { useAuth } from "@/store/useAuth";
 import { getCameras } from "@/api/cameras";
 import {
   getOrganizations,
+  createOrganization,
+  updateOrganization,
+  updateOrganizationStatus,
   getSites,
   getZones,
   getAnalyticsCatalog,
@@ -19,6 +22,7 @@ import { ErrorState } from "@/components/common/ErrorState";
 import { EmptyState } from "@/components/common/EmptyState";
 import CameraTile from "@/components/cameras/CameraTile";
 import type { UserRole } from "@/types/auth";
+import type { Organization } from "@/types/platform";
 
 export default function MasterDashboard() {
   const { user } = useAuth();
@@ -38,7 +42,7 @@ export default function MasterDashboard() {
     queryFn: getOrganizations,
   });
 
-  const activeOrgId = orgs && orgs.length > 0 ? orgs[0].id : "";
+  const activeOrgId = user?.organization_id || (orgs && orgs.length > 0 ? orgs[0].id : "");
 
   const { data: cameras, isLoading: loadingCameras, isError } = useQuery({
     queryKey: ["cameras"],
@@ -107,6 +111,64 @@ export default function MasterDashboard() {
   const resolveMutation = useMutation({
     mutationFn: resolveAlert,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["recentAlerts"] }),
+  });
+
+  // Organization management state for Superadmin Platform Control Center
+  const [showCreateOrgModal, setShowCreateOrgModal] = useState(false);
+  const [newOrgName, setNewOrgName] = useState("");
+  const [newOrgCode, setNewOrgCode] = useState("");
+  const [newOrgTier, setNewOrgTier] = useState("enterprise");
+  const [orgSearch, setOrgSearch] = useState("");
+  const [orgError, setOrgError] = useState("");
+
+  // Edit Organization State
+  const [editingOrg, setEditingOrg] = useState<Organization | null>(null);
+  const [editOrgName, setEditOrgName] = useState("");
+  const [editOrgTier, setEditOrgTier] = useState("enterprise");
+
+  // Deactivate Organization State
+  const [deactivatingOrg, setDeactivatingOrg] = useState<Organization | null>(null);
+
+  const createOrgMutation = useMutation({
+    mutationFn: createOrganization,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["organizations"] });
+      setShowCreateOrgModal(false);
+      setNewOrgName("");
+      setNewOrgCode("");
+      setOrgError("");
+    },
+    onError: (err: any) => {
+      setOrgError(err?.response?.data?.detail || "Failed to create organization account.");
+    },
+  });
+
+  const updateOrgMutation = useMutation({
+    mutationFn: () => {
+      if (!editingOrg) throw new Error("No organization selected for update");
+      return updateOrganization(editingOrg.id, { name: editOrgName, tier: editOrgTier });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["organizations"] });
+      setEditingOrg(null);
+      setOrgError("");
+    },
+    onError: (err: any) => {
+      setOrgError(err?.response?.data?.detail || "Failed to update organization account.");
+    },
+  });
+
+  const toggleOrgStatusMutation = useMutation({
+    mutationFn: ({ orgId, isActive }: { orgId: string; isActive: boolean }) =>
+      updateOrganizationStatus(orgId, isActive),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["organizations"] });
+      setDeactivatingOrg(null);
+      setOrgError("");
+    },
+    onError: (err: any) => {
+      setOrgError(err?.response?.data?.detail || "Failed to update organization status.");
+    },
   });
 
   if (loadingCameras) {
@@ -733,6 +795,324 @@ export default function MasterDashboard() {
             </div>
           </div>
 
+          {/* Superadmin Tenant Organizations Directory & Management */}
+          <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "10px", padding: "18px 20px", marginBottom: "28px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "10px" }}>
+              <div>
+                <h3 style={{ fontSize: "15px", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
+                  Client Organizations &amp; Multi-Tenant Accounts ({orgs?.length ?? 0})
+                </h3>
+                <p style={{ fontSize: "12px", color: "var(--text-muted)", margin: "2px 0 0 0" }}>
+                  Sovereign tenant governance, subscription plan provisioning, and account lifecycle status.
+                </p>
+              </div>
+
+              <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                <input
+                  type="text"
+                  placeholder="Filter organizations..."
+                  value={orgSearch}
+                  onChange={(e) => setOrgSearch(e.target.value)}
+                  style={{
+                    background: "var(--input-bg)",
+                    border: "1px solid var(--input-border)",
+                    borderRadius: "6px",
+                    padding: "6px 12px",
+                    color: "var(--input-color)",
+                    fontSize: "12px",
+                    outline: "none",
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowCreateOrgModal(true)}
+                  style={{
+                    background: "var(--primary)",
+                    color: "#ffffff",
+                    border: "none",
+                    borderRadius: "6px",
+                    padding: "6px 14px",
+                    fontSize: "12.5px",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "6px",
+                  }}
+                >
+                  + Onboard Organization
+                </button>
+              </div>
+            </div>
+
+            {/* Creation Form Modal if triggered */}
+            {showCreateOrgModal && (
+              <div style={{ background: "var(--surface-raised)", border: "1px solid var(--border-hover)", borderRadius: "8px", padding: "16px", marginBottom: "16px" }}>
+                <h4 style={{ fontSize: "13.5px", fontWeight: 700, margin: "0 0 10px 0", color: "var(--text-primary)" }}>
+                  Provision New Client Organization Account
+                </h4>
+                {orgError && (
+                  <div style={{ color: "var(--danger)", fontSize: "12px", marginBottom: "10px" }}>{orgError}</div>
+                )}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "12px", marginBottom: "12px" }}>
+                  <div>
+                    <label style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-muted)", display: "block", marginBottom: "4px" }}>Organization Legal Name</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Apex Manufacturing Corp"
+                      value={newOrgName}
+                      onChange={(e) => {
+                        setNewOrgName(e.target.value);
+                        if (!newOrgCode) {
+                          setNewOrgCode(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, "_").slice(0, 20));
+                        }
+                      }}
+                      style={{ width: "100%", background: "var(--input-bg)", border: "1px solid var(--input-border)", borderRadius: "6px", padding: "6px 10px", color: "var(--input-color)", fontSize: "12px" }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-muted)", display: "block", marginBottom: "4px" }}>Account Identifier Code</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. org_apex_01"
+                      value={newOrgCode}
+                      onChange={(e) => setNewOrgCode(e.target.value)}
+                      style={{ width: "100%", background: "var(--input-bg)", border: "1px solid var(--input-border)", borderRadius: "6px", padding: "6px 10px", color: "var(--input-color)", fontSize: "12px" }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-muted)", display: "block", marginBottom: "4px" }}>Subscription Tier</label>
+                    <select
+                      value={newOrgTier}
+                      onChange={(e) => setNewOrgTier(e.target.value)}
+                      style={{ width: "100%", background: "var(--input-bg)", border: "1px solid var(--input-border)", borderRadius: "6px", padding: "6px 10px", color: "var(--input-color)", fontSize: "12px" }}
+                    >
+                      <option value="enterprise">Enterprise Plan</option>
+                      <option value="growth">Industrial Growth</option>
+                      <option value="starter">Safety Starter</option>
+                    </select>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+                  <button
+                    type="button"
+                    onClick={() => { setShowCreateOrgModal(false); setOrgError(""); }}
+                    style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: "6px", padding: "6px 12px", color: "var(--text-secondary)", fontSize: "12px", cursor: "pointer" }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!newOrgName || !newOrgCode || createOrgMutation.isPending}
+                    onClick={() => createOrgMutation.mutate({ name: newOrgName, code: newOrgCode, tier: newOrgTier })}
+                    style={{ background: "var(--primary)", border: "none", borderRadius: "6px", padding: "6px 16px", color: "#ffffff", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}
+                  >
+                    {createOrgMutation.isPending ? "Provisioning..." : "Confirm Provisioning"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Organizations Table */}
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12.5px" }}>
+                <thead>
+                  <tr style={{ borderBottom: "1px solid var(--border)", color: "var(--text-muted)", textAlign: "left" }}>
+                    <th style={{ padding: "8px 12px", fontWeight: 600 }}>Organization Name</th>
+                    <th style={{ padding: "8px 12px", fontWeight: 600 }}>Account Code</th>
+                    <th style={{ padding: "8px 12px", fontWeight: 600 }}>Plan Tier</th>
+                    <th style={{ padding: "8px 12px", fontWeight: 600 }}>Timezone</th>
+                    <th style={{ padding: "8px 12px", fontWeight: 600 }}>Account Status</th>
+                    <th style={{ padding: "8px 12px", fontWeight: 600 }}>Created Date</th>
+                    <th style={{ padding: "8px 12px", fontWeight: 600, textAlign: "right" }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(orgs || [])
+                    .filter((o) => !orgSearch || o.name.toLowerCase().includes(orgSearch.toLowerCase()) || o.code?.toLowerCase().includes(orgSearch.toLowerCase()))
+                    .slice(0, 8)
+                    .map((orgItem) => (
+                      <tr key={orgItem.id} style={{ borderBottom: "1px solid var(--border-subtle)", color: "var(--text-primary)" }}>
+                        <td style={{ padding: "10px 12px", fontWeight: 600 }}>{orgItem.name}</td>
+                        <td style={{ padding: "10px 12px", fontFamily: "monospace", color: "var(--info)" }}>{orgItem.code || "—"}</td>
+                        <td style={{ padding: "10px 12px", textTransform: "capitalize" }}>
+                          <span style={{ background: "rgba(166, 70, 189, 0.12)", color: "var(--primary)", padding: "2px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 600 }}>
+                            {orgItem.tier || "Enterprise"}
+                          </span>
+                        </td>
+                        <td style={{ padding: "10px 12px", color: "var(--text-secondary)" }}>{orgItem.timezone || "UTC"}</td>
+                        <td style={{ padding: "10px 12px" }}>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", color: orgItem.is_active ? "var(--success)" : "var(--danger)", fontSize: "11.5px", fontWeight: 600 }}>
+                            <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: orgItem.is_active ? "var(--success)" : "var(--danger)" }} />
+                            {orgItem.is_active ? "Active" : "Suspended"}
+                          </span>
+                        </td>
+                        <td style={{ padding: "10px 12px", color: "var(--text-muted)", fontFamily: "monospace", fontSize: "11px" }}>
+                          {orgItem.created_at ? new Date(orgItem.created_at).toLocaleDateString() : "—"}
+                        </td>
+                        <td style={{ padding: "10px 12px", textAlign: "right" }}>
+                          <div style={{ display: "flex", justifyContent: "flex-end", gap: "6px" }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingOrg(orgItem);
+                                setEditOrgName(orgItem.name);
+                                setEditOrgTier(orgItem.tier || "enterprise");
+                              }}
+                              style={{
+                                background: "var(--surface-raised)",
+                                border: "1px solid var(--border)",
+                                color: "var(--text-primary)",
+                                padding: "3px 8px",
+                                borderRadius: "4px",
+                                fontSize: "11px",
+                                cursor: "pointer",
+                                fontWeight: 600,
+                              }}
+                            >
+                              ✏️ Edit
+                            </button>
+                            {orgItem.is_active ? (
+                              <button
+                                type="button"
+                                onClick={() => setDeactivatingOrg(orgItem)}
+                                style={{
+                                  background: "rgba(239, 68, 68, 0.1)",
+                                  border: "1px solid rgba(239, 68, 68, 0.3)",
+                                  color: "var(--danger)",
+                                  padding: "3px 8px",
+                                  borderRadius: "4px",
+                                  fontSize: "11px",
+                                  cursor: "pointer",
+                                  fontWeight: 600,
+                                }}
+                              >
+                                Deactivate
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => toggleOrgStatusMutation.mutate({ orgId: orgItem.id, isActive: true })}
+                                style={{
+                                  background: "rgba(16, 185, 129, 0.1)",
+                                  border: "1px solid rgba(16, 185, 129, 0.3)",
+                                  color: "var(--success)",
+                                  padding: "3px 8px",
+                                  borderRadius: "4px",
+                                  fontSize: "11px",
+                                  cursor: "pointer",
+                                  fontWeight: 600,
+                                }}
+                              >
+                                Reactivate
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Modal: Edit Organization */}
+            {editingOrg && (
+              <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "16px" }}>
+                <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "8px", padding: "24px", width: "100%", maxWidth: "420px" }}>
+                  <h3 style={{ margin: "0 0 6px 0", fontSize: "18px", color: "var(--text-primary)" }}>Edit Client Organization</h3>
+                  <p style={{ margin: "0 0 16px 0", fontSize: "12px", color: "var(--text-muted)" }}>
+                    Update organization account name and enterprise subscription tier.
+                  </p>
+                  {orgError && (
+                    <div style={{ color: "var(--danger)", fontSize: "12px", marginBottom: "12px" }}>{orgError}</div>
+                  )}
+                  <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "20px" }}>
+                    <div>
+                      <label style={{ display: "block", fontSize: "12px", color: "var(--text-secondary)", marginBottom: "4px" }}>Organization Name *</label>
+                      <input
+                        type="text"
+                        value={editOrgName}
+                        onChange={(e) => setEditOrgName(e.target.value)}
+                        style={{ width: "100%", background: "var(--surface-raised)", border: "1px solid var(--border)", color: "var(--text-primary)", padding: "8px 12px", borderRadius: "4px" }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: "block", fontSize: "12px", color: "var(--text-secondary)", marginBottom: "4px" }}>Subscription Tier</label>
+                      <select
+                        value={editOrgTier}
+                        onChange={(e) => setEditOrgTier(e.target.value)}
+                        style={{ width: "100%", background: "var(--surface-raised)", border: "1px solid var(--border)", color: "var(--text-primary)", padding: "8px 12px", borderRadius: "4px" }}
+                      >
+                        <option value="enterprise">Enterprise Plan</option>
+                        <option value="growth">Industrial Growth</option>
+                        <option value="starter">Safety Starter</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: "12px" }}>
+                    <button
+                      type="button"
+                      onClick={() => { setEditingOrg(null); setOrgError(""); }}
+                      style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--text-secondary)", padding: "6px 14px", borderRadius: "4px", cursor: "pointer" }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!editOrgName.trim() || updateOrgMutation.isPending}
+                      onClick={() => updateOrgMutation.mutate()}
+                      style={{ background: "var(--primary)", border: "none", color: "#fff", padding: "6px 16px", borderRadius: "4px", fontWeight: 600, cursor: "pointer" }}
+                    >
+                      {updateOrgMutation.isPending ? "Saving..." : "Save Changes"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Confirmation Modal: Deactivate Organization */}
+            {deactivatingOrg && (
+              <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "16px" }}>
+                <div style={{ background: "var(--surface)", border: "1px solid rgba(239,68,68,0.4)", borderRadius: "8px", padding: "24px", width: "100%", maxWidth: "460px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
+                    <span style={{ fontSize: "24px" }}>⚠️</span>
+                    <h3 style={{ margin: 0, fontSize: "18px", color: "var(--danger)" }}>Confirm Organization Deactivation</h3>
+                  </div>
+                  <p style={{ margin: "0 0 12px 0", fontSize: "13.5px", color: "var(--text-primary)", lineHeight: 1.5 }}>
+                    Are you sure you want to deactivate organization account <strong>{deactivatingOrg.name}</strong> ({deactivatingOrg.code})?
+                  </p>
+                  <div style={{ background: "var(--surface-raised)", border: "1px solid var(--border)", borderRadius: "6px", padding: "12px", marginBottom: "20px", fontSize: "12px", color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                    <div style={{ color: "var(--text-primary)", fontWeight: 600, marginBottom: "4px" }}>
+                      Platform Sovereignty &amp; Data Safeguards:
+                    </div>
+                    <ul style={{ margin: 0, paddingLeft: "18px" }}>
+                      <li>Tenant users will be suspended from performing operational mutations.</li>
+                      <li>Multi-tenant isolation and foreign key relations are strictly maintained.</li>
+                      <li>Historical alerts, incidents, and audit trails remain permanently preserved.</li>
+                    </ul>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: "12px" }}>
+                    <button
+                      type="button"
+                      onClick={() => setDeactivatingOrg(null)}
+                      style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--text-secondary)", padding: "7px 16px", borderRadius: "4px", fontSize: "13px", cursor: "pointer" }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={toggleOrgStatusMutation.isPending}
+                      onClick={() => toggleOrgStatusMutation.mutate({ orgId: deactivatingOrg.id, isActive: false })}
+                      style={{ background: "var(--danger)", border: "none", color: "#fff", padding: "7px 18px", borderRadius: "4px", fontWeight: 600, fontSize: "13px", cursor: "pointer" }}
+                    >
+                      {toggleOrgStatusMutation.isPending ? "Deactivating..." : "Confirm Deactivation"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Superadmin Recent Audit Ledger Entries */}
           {auditLogs && auditLogs.items && auditLogs.items.length > 0 && (
             <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "10px", padding: "18px 20px", marginBottom: "28px" }}>
@@ -769,7 +1149,6 @@ export default function MasterDashboard() {
                     <span style={{ color: "var(--text-muted)", fontFamily: "monospace", fontSize: "11px" }}>
                       {log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : "Recent"}
                     </span>
-
                   </div>
                 ))}
               </div>
@@ -778,112 +1157,161 @@ export default function MasterDashboard() {
         </section>
       )}
 
-
       {/* =========================================================================
-          COMMON SECTION: Active Camera Feeds Grid with Search & Status Filters
+          COMPANY OPERATIONAL SECTION: Active Camera Feeds Grid with Search & Status Filters
+          Exclusively for company operational roles (Admin, Operator, Viewer).
+          Routine operational feeds are excluded from Superadmin sovereign view.
           ========================================================================= */}
-      <section aria-labelledby="cameras-heading" style={{ marginTop: "12px" }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            flexWrap: "wrap",
-            gap: "14px",
-            marginBottom: "18px",
-          }}
-        >
-          <div>
-            <h2 id="cameras-heading" style={{ fontSize: "17px", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
-              Live Camera Feeds ({filteredCameras.length})
-            </h2>
-            <p style={{ fontSize: "12.5px", color: "var(--text-muted)", margin: "2px 0 0 0" }}>
-              Active video streams across all plant zones. Click any tile to inspect live detections.
-            </p>
-          </div>
+      {activeRoleView !== "superadmin" && (
+        <section aria-labelledby="cameras-heading" style={{ marginTop: "12px" }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: "14px",
+              marginBottom: "18px",
+            }}
+          >
+            <div>
+              <h2 id="cameras-heading" style={{ fontSize: "17px", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
+                Live Camera Feeds ({filteredCameras.length})
+              </h2>
+              <p style={{ fontSize: "12.5px", color: "var(--text-muted)", margin: "2px 0 0 0" }}>
+                Active video streams across all plant zones. Click any tile to inspect live detections.
+              </p>
+            </div>
 
-          {/* Search & Status Toolbar */}
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <input
-              type="text"
-              placeholder="Search cameras by name, ID or location..."
-              value={cameraSearch}
-              onChange={(e) => setCameraSearch(e.target.value)}
-              style={{
-                background: "var(--input-bg)",
-                border: "1px solid var(--input-border)",
-                borderRadius: "6px",
-                padding: "6px 12px",
-                color: "var(--input-color)",
-                fontSize: "12.5px",
-                minWidth: "260px",
-                outline: "none",
-              }}
-            />
+            {/* Search & Status Toolbar */}
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <input
+                type="text"
+                placeholder="Search cameras by name, ID or location..."
+                value={cameraSearch}
+                onChange={(e) => setCameraSearch(e.target.value)}
+                style={{
+                  background: "var(--input-bg)",
+                  border: "1px solid var(--input-border)",
+                  borderRadius: "6px",
+                  padding: "6px 12px",
+                  color: "var(--input-color)",
+                  fontSize: "12.5px",
+                  minWidth: "260px",
+                  outline: "none",
+                }}
+              />
 
-            <div style={{ display: "flex", background: "var(--surface-raised)", border: "1px solid var(--border)", borderRadius: "6px", padding: "2px" }}>
-              <button
-                type="button"
-                onClick={() => setStatusFilter("all")}
-                style={{
-                  background: statusFilter === "all" ? "var(--surface-hover)" : "transparent",
-                  border: "none",
-                  color: statusFilter === "all" ? "var(--text-primary)" : "var(--text-muted)",
-                  padding: "4px 10px",
-                  borderRadius: "4px",
-                  fontSize: "12px",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                All
-              </button>
-              <button
-                type="button"
-                onClick={() => setStatusFilter("online")}
-                style={{
-                  background: statusFilter === "online" ? "var(--success-bg)" : "transparent",
-                  border: "none",
-                  color: statusFilter === "online" ? "var(--success)" : "var(--text-muted)",
-                  padding: "4px 10px",
-                  borderRadius: "4px",
-                  fontSize: "12px",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                Online
-              </button>
-              <button
-                type="button"
-                onClick={() => setStatusFilter("offline")}
-                style={{
-                  background: statusFilter === "offline" ? "var(--danger-bg)" : "transparent",
-                  border: "none",
-                  color: statusFilter === "offline" ? "var(--danger)" : "var(--text-muted)",
-                  padding: "4px 10px",
-                  borderRadius: "4px",
-                  fontSize: "12px",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                Offline
-              </button>
+              <div style={{ display: "flex", background: "var(--surface-raised)", border: "1px solid var(--border)", borderRadius: "6px", padding: "2px" }}>
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter("all")}
+                  style={{
+                    background: statusFilter === "all" ? "var(--surface-hover)" : "transparent",
+                    border: "none",
+                    color: statusFilter === "all" ? "var(--text-primary)" : "var(--text-muted)",
+                    padding: "4px 10px",
+                    borderRadius: "4px",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter("online")}
+                  style={{
+                    background: statusFilter === "online" ? "var(--success-bg)" : "transparent",
+                    border: "none",
+                    color: statusFilter === "online" ? "var(--success)" : "var(--text-muted)",
+                    padding: "4px 10px",
+                    borderRadius: "4px",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  Online
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter("offline")}
+                  style={{
+                    background: statusFilter === "offline" ? "var(--danger-bg)" : "transparent",
+                    border: "none",
+                    color: statusFilter === "offline" ? "var(--danger)" : "var(--text-muted)",
+                    padding: "4px 10px",
+                    borderRadius: "4px",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  Offline
+                </button>
+              </div>
             </div>
           </div>
-        </div>
 
-        {filteredCameras.length === 0 ? (
-          <EmptyState message="No cameras match the current search or status filter." />
-        ) : (
-          <div className="camera-grid">
-            {filteredCameras.map((camera) => (
-              <CameraTile key={camera.id} camera={camera} />
-            ))}
-          </div>
-        )}
-      </section>
+          {cameraList.length === 0 ? (
+            <div style={{ background: "var(--surface)", border: "1px dashed var(--border)", borderRadius: "8px", padding: "48px 24px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: "10px" }}>
+              <div style={{ width: "48px", height: "48px", borderRadius: "50%", background: "var(--surface-raised)", border: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "22px" }}>
+                📹
+              </div>
+              <div style={{ fontSize: "16px", fontWeight: 700, color: "var(--text-primary)" }}>
+                No Operational Cameras Registered
+              </div>
+              <p style={{ fontSize: "13px", color: "var(--text-muted)", margin: 0, maxWidth: "460px", lineHeight: 1.5 }}>
+                Your organization currently has no live cameras configured. Begin by creating plant sites and zones, then register your operational cameras to enable real-time safety monitoring.
+              </p>
+              {(user?.role === "admin" || user?.role === "org_admin") && (
+                <div style={{ display: "flex", gap: "12px", marginTop: "8px" }}>
+                  <Link
+                    to="/sites-zones"
+                    style={{
+                      background: "var(--surface-raised)",
+                      border: "1px solid var(--border)",
+                      color: "var(--text-primary)",
+                      padding: "7px 16px",
+                      borderRadius: "6px",
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      textDecoration: "none",
+                    }}
+                  >
+                    📍 Set Up Sites &amp; Zones
+                  </Link>
+                  <Link
+                    to="/admin/cameras"
+                    style={{
+                      background: "var(--primary, #3b82f6)",
+                      border: "none",
+                      color: "#ffffff",
+                      padding: "7px 16px",
+                      borderRadius: "6px",
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      textDecoration: "none",
+                    }}
+                  >
+                    + Register Camera
+                  </Link>
+                </div>
+              )}
+            </div>
+          ) : filteredCameras.length === 0 ? (
+            <EmptyState message="No cameras match the current search or status filter." />
+          ) : (
+            <div className="camera-grid">
+              {filteredCameras.map((camera) => (
+                <CameraTile key={camera.id} camera={camera} />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
     </main>
   );
 }

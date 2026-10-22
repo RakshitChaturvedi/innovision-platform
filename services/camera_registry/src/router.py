@@ -1,12 +1,13 @@
 import json
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Header
 from typing import Optional
 
 from services.camera_registry.src.schemas import (
     CameraCreate, CameraConfigUpdate, CameraResponse, CameraStatusUpdate,
-    OrganizationCreate, OrganizationResponse,
-    SiteCreate, SiteResponse,
-    ZoneCreate, ZoneResponse,
+    OrganizationCreate, OrganizationUpdate, OrganizationStatusUpdate, OrganizationResponse,
+    SiteCreate, SiteUpdate, SiteResponse,
+    ZoneCreate, ZoneUpdate, ZoneResponse,
     CameraAssignZone,
     AnalyticsCatalogResponse,
     OrganizationSubscriptionCreate, OrganizationSubscriptionUpdate, OrganizationSubscriptionResponse,
@@ -19,7 +20,10 @@ from services.camera_registry.src.schemas import (
 from services.camera_registry.src.service import CameraRegistryService
 from services.camera_registry.src.video_sessions import CameraRegistryVideoSessionCoordinator
 from services.auth.src.rbac import get_current_user, require_role, require_organization_access, Role, verify_resource_org
+from services.audit.src.writer import write_audit_entry
 from uuid import UUID
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/cameras", tags=["camera-registry"])
 analytics_router = APIRouter(prefix="/analytics", tags=["analytics-catalog"])
@@ -36,6 +40,24 @@ def _user_org_id(user: dict) -> str | None:
     if user.get("role") == Role.SUPERADMIN:
         return None
     return user.get("org_id") or user.get("organization_id")
+
+async def _audit(service: CameraRegistryService, action: str, entity_type: str, entity_id: str, user: dict, metadata: dict | None = None) -> None:
+    try:
+        await write_audit_entry(
+            session_factory=service._session_factory,
+            service="camera_registry",
+            action=action,
+            entity_type=entity_type,
+            entity_id=str(entity_id),
+            user_id=user.get("sub"),
+            metadata=metadata or {}
+        )
+    except Exception as e:
+        logger.error(f"Audit log write failed for action={action} entity={entity_type}:{entity_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Security audit logging failed: {e}. Administrative mutation aborted to preserve compliance integrity."
+        )
 
 # --- Analytics Catalog Endpoints ---
 @analytics_router.get("/catalog", response_model=list[AnalyticsCatalogResponse])
@@ -63,8 +85,8 @@ async def list_organization_subscriptions(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-@organizations_router.post("/{organization_id}/subscriptions", response_model=OrganizationSubscriptionResponse, status_code=201, dependencies=[Depends(require_role(Role.ADMIN))])
-@router.post("/organizations/{organization_id}/subscriptions", response_model=OrganizationSubscriptionResponse, status_code=201, dependencies=[Depends(require_role(Role.ADMIN))])
+@organizations_router.post("/{organization_id}/subscriptions", response_model=OrganizationSubscriptionResponse, status_code=201, dependencies=[Depends(require_role(Role.SUPERADMIN))])
+@router.post("/organizations/{organization_id}/subscriptions", response_model=OrganizationSubscriptionResponse, status_code=201, dependencies=[Depends(require_role(Role.SUPERADMIN))])
 async def create_organization_subscription(
     organization_id: str,
     body: OrganizationSubscriptionCreate,
@@ -72,18 +94,18 @@ async def create_organization_subscription(
     service: CameraRegistryService = Depends(get_service)
 ):
     if user.get("role") != Role.SUPERADMIN:
-        user_org = _user_org_id(user)
-        if not user_org or str(user_org) != str(organization_id):
-            raise HTTPException(status_code=403, detail="Cross-organization access forbidden")
+        raise HTTPException(status_code=403, detail="Forbidden: SUPERADMIN role required to manage organization subscriptions")
     try:
-        return await service.create_organization_subscription(organization_id, body)
+        created = await service.create_organization_subscription(organization_id, body)
+        await _audit(service, "subscription_created", "organization_subscription", str(created["id"]), user, {"organization_id": organization_id, "analytic_id": str(body.analytic_id), "max_cameras_allowed": body.max_cameras_allowed})
+        return created
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except KeyError as e:
         raise HTTPException(status_code=409, detail=str(e))
 
-@organizations_router.put("/{organization_id}/subscriptions/{analytic_id}", response_model=OrganizationSubscriptionResponse, dependencies=[Depends(require_role(Role.ADMIN))])
-@router.put("/organizations/{organization_id}/subscriptions/{analytic_id}", response_model=OrganizationSubscriptionResponse, dependencies=[Depends(require_role(Role.ADMIN))])
+@organizations_router.put("/{organization_id}/subscriptions/{analytic_id}", response_model=OrganizationSubscriptionResponse, dependencies=[Depends(require_role(Role.SUPERADMIN))])
+@router.put("/organizations/{organization_id}/subscriptions/{analytic_id}", response_model=OrganizationSubscriptionResponse, dependencies=[Depends(require_role(Role.SUPERADMIN))])
 async def update_organization_subscription(
     organization_id: str,
     analytic_id: str,
@@ -92,19 +114,18 @@ async def update_organization_subscription(
     service: CameraRegistryService = Depends(get_service)
 ):
     if user.get("role") != Role.SUPERADMIN:
-        user_org = _user_org_id(user)
-        if not user_org or str(user_org) != str(organization_id):
-            raise HTTPException(status_code=403, detail="Cross-organization access forbidden")
+        raise HTTPException(status_code=403, detail="Forbidden: SUPERADMIN role required to manage organization subscriptions")
     try:
         res = await service.update_organization_subscription(organization_id, analytic_id, body)
         if not res:
             raise HTTPException(status_code=404, detail="Subscription not found")
+        await _audit(service, "subscription_updated", "organization_subscription", str(res["id"]), user, {"organization_id": organization_id, "analytic_id": analytic_id, "max_cameras_allowed": body.max_cameras_allowed, "is_enabled": body.is_enabled})
         return res
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-@organizations_router.delete("/{organization_id}/subscriptions/{analytic_id}", status_code=204, dependencies=[Depends(require_role(Role.ADMIN))])
-@router.delete("/organizations/{organization_id}/subscriptions/{analytic_id}", status_code=204, dependencies=[Depends(require_role(Role.ADMIN))])
+@organizations_router.delete("/{organization_id}/subscriptions/{analytic_id}", status_code=204, dependencies=[Depends(require_role(Role.SUPERADMIN))])
+@router.delete("/organizations/{organization_id}/subscriptions/{analytic_id}", status_code=204, dependencies=[Depends(require_role(Role.SUPERADMIN))])
 async def delete_organization_subscription(
     organization_id: str,
     analytic_id: str,
@@ -112,11 +133,10 @@ async def delete_organization_subscription(
     service: CameraRegistryService = Depends(get_service)
 ):
     if user.get("role") != Role.SUPERADMIN:
-        user_org = _user_org_id(user)
-        if not user_org or str(user_org) != str(organization_id):
-            raise HTTPException(status_code=403, detail="Cross-organization access forbidden")
+        raise HTTPException(status_code=403, detail="Forbidden: SUPERADMIN role required to manage organization subscriptions")
     try:
         await service.delete_organization_subscription(organization_id, analytic_id)
+        await _audit(service, "subscription_deleted", "organization_subscription", f"{organization_id}:{analytic_id}", user, {"organization_id": organization_id, "analytic_id": analytic_id})
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -206,14 +226,18 @@ async def update_zone_ppe_rules(
         raise HTTPException(status_code=403, detail=str(e))
 
 # --- Organizations ---
+@organizations_router.post("", response_model=OrganizationResponse, status_code=201, dependencies=[Depends(require_role(Role.SUPERADMIN))])
 @router.post("/organizations", response_model=OrganizationResponse, status_code=201, dependencies=[Depends(require_role(Role.SUPERADMIN))])
 async def create_organization(
     body: OrganizationCreate,
     user: dict = Depends(get_current_user),
     service: CameraRegistryService = Depends(get_service)
 ):
-    return await service.create_organization(body)
+    org = await service.create_organization(body)
+    await _audit(service, "organization_created", "organization", org["id"], user, {"name": org["name"], "code": org["code"]})
+    return org
 
+@organizations_router.get("", response_model=list[OrganizationResponse])
 @router.get("/organizations", response_model=list[OrganizationResponse])
 async def list_organizations(
     user: dict = Depends(get_current_user),
@@ -227,6 +251,54 @@ async def list_organizations(
         return []
     return orgs
 
+@organizations_router.put("/{organization_id}", response_model=OrganizationResponse, dependencies=[Depends(require_role(Role.SUPERADMIN))])
+@router.put("/organizations/{organization_id}", response_model=OrganizationResponse, dependencies=[Depends(require_role(Role.SUPERADMIN))])
+async def update_organization(
+    organization_id: str,
+    body: OrganizationUpdate,
+    user: dict = Depends(get_current_user),
+    service: CameraRegistryService = Depends(get_service)
+):
+    if user.get("role") != Role.SUPERADMIN:
+        raise HTTPException(status_code=403, detail="Forbidden: SUPERADMIN role required")
+    org = await service.get_organization(organization_id)
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    updated = await service.update_organization(organization_id, body)
+    await _audit(
+        service,
+        "organization_updated",
+        "organization",
+        organization_id,
+        user,
+        {"name": updated.get("name"), "tier": updated.get("tier")}
+    )
+    return updated
+
+@organizations_router.put("/{organization_id}/status", response_model=OrganizationResponse, dependencies=[Depends(require_role(Role.SUPERADMIN))])
+@router.put("/organizations/{organization_id}/status", response_model=OrganizationResponse, dependencies=[Depends(require_role(Role.SUPERADMIN))])
+async def update_organization_status(
+    organization_id: str,
+    body: OrganizationStatusUpdate,
+    user: dict = Depends(get_current_user),
+    service: CameraRegistryService = Depends(get_service)
+):
+    if user.get("role") != Role.SUPERADMIN:
+        raise HTTPException(status_code=403, detail="Forbidden: SUPERADMIN role required")
+    org = await service.get_organization(organization_id)
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    updated = await service.update_organization_status(organization_id, body.is_active)
+    await _audit(
+        service,
+        "organization_status_updated",
+        "organization",
+        organization_id,
+        user,
+        {"is_active": body.is_active, "name": updated.get("name")}
+    )
+    return updated
+
 # --- Sites ---
 @router.post("/sites", response_model=SiteResponse, status_code=201, dependencies=[Depends(require_role(Role.ADMIN))])
 async def create_site(
@@ -238,7 +310,9 @@ async def create_site(
         user_org = _user_org_id(user)
         if not user_org or str(body.organization_id) != str(user_org):
             raise HTTPException(status_code=403, detail="Cross-organization access forbidden")
-    return await service.create_site(body)
+    site = await service.create_site(body)
+    await _audit(service, "site_created", "site", site["id"], user, {"name": site["name"], "code": site["code"]})
+    return site
 
 @router.get("/sites", response_model=list[SiteResponse])
 async def list_sites(
@@ -253,7 +327,57 @@ async def list_sites(
         organization_id = user_org
     return await service.list_sites(organization_id)
 
+@router.get("/sites/{site_id}", response_model=SiteResponse)
+async def get_site(
+    site_id: str,
+    user: dict = Depends(get_current_user),
+    service: CameraRegistryService = Depends(get_service)
+):
+    site = await service.get_site(site_id)
+    if not site:
+        raise HTTPException(status_code=404, detail="Site not found")
+    verify_resource_org(site.get("organization_id"), user)
+    return site
+
+@router.put("/sites/{site_id}", response_model=SiteResponse, dependencies=[Depends(require_role(Role.ADMIN))])
+async def update_site(
+    site_id: str,
+    body: SiteUpdate,
+    user: dict = Depends(get_current_user),
+    service: CameraRegistryService = Depends(get_service)
+):
+    site = await service.get_site(site_id)
+    if not site:
+        raise HTTPException(status_code=404, detail="Site not found")
+    verify_resource_org(site.get("organization_id"), user)
+    updated = await service.update_site(site_id, body)
+    await _audit(service, "site_updated", "site", site_id, user, {"name": updated.get("name"), "code": updated.get("code")})
+    return updated
+
+@router.delete("/sites/{site_id}", status_code=204, dependencies=[Depends(require_role(Role.ADMIN))])
+async def delete_site(
+    site_id: str,
+    user: dict = Depends(get_current_user),
+    service: CameraRegistryService = Depends(get_service)
+):
+    site = await service.get_site(site_id)
+    if not site:
+        raise HTTPException(status_code=404, detail="Site not found")
+    verify_resource_org(site.get("organization_id"), user)
+    try:
+        await service.delete_site(site_id)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except RuntimeError as e:
+        logger.error(f"Site deletion aborted due to safety check failure for site_id={site_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Administrative deletion aborted: database safety dependency check failed. Consult server logs."
+        )
+    await _audit(service, "site_deleted", "site", site_id, user, {"name": site.get("name"), "code": site.get("code")})
+
 # --- Zones ---
+@zones_router.post("", response_model=ZoneResponse, status_code=201, dependencies=[Depends(require_role(Role.ADMIN))])
 @router.post("/zones", response_model=ZoneResponse, status_code=201, dependencies=[Depends(require_role(Role.ADMIN))])
 async def create_zone(
     body: ZoneCreate,
@@ -266,8 +390,11 @@ async def create_zone(
             site = await service.get_site(str(body.site_id))
             if not site or str(site.get("organization_id")) != str(user_org):
                 raise HTTPException(status_code=403, detail="Cross-organization access forbidden")
-    return await service.create_zone(body)
+    zone = await service.create_zone(body)
+    await _audit(service, "zone_created", "zone", zone["id"], user, {"name": zone["name"]})
+    return zone
 
+@zones_router.get("", response_model=list[ZoneResponse])
 @router.get("/zones", response_model=list[ZoneResponse])
 async def list_zones(
     site_id: Optional[str] = Query(None),
@@ -284,6 +411,58 @@ async def list_zones(
         zones = await service.list_zones(None)
         return [z for z in zones if str(z.get("organization_id")) == str(user_org)]
     return await service.list_zones(site_id)
+
+@zones_router.get("/{zone_id}", response_model=ZoneResponse)
+@router.get("/zones/{zone_id}", response_model=ZoneResponse)
+async def get_zone(
+    zone_id: str,
+    user: dict = Depends(get_current_user),
+    service: CameraRegistryService = Depends(get_service)
+):
+    zone = await service.get_zone(zone_id)
+    if not zone:
+        raise HTTPException(status_code=404, detail="Zone not found")
+    verify_resource_org(zone.get("organization_id"), user)
+    return zone
+
+@zones_router.put("/{zone_id}", response_model=ZoneResponse, dependencies=[Depends(require_role(Role.ADMIN))])
+@router.put("/zones/{zone_id}", response_model=ZoneResponse, dependencies=[Depends(require_role(Role.ADMIN))])
+async def update_zone(
+    zone_id: str,
+    body: ZoneUpdate,
+    user: dict = Depends(get_current_user),
+    service: CameraRegistryService = Depends(get_service)
+):
+    zone = await service.get_zone(zone_id)
+    if not zone:
+        raise HTTPException(status_code=404, detail="Zone not found")
+    verify_resource_org(zone.get("organization_id"), user)
+    updated = await service.update_zone(zone_id, body)
+    await _audit(service, "zone_updated", "zone", zone_id, user, {"name": updated.get("name"), "zone_type": updated.get("zone_type")})
+    return updated
+
+@zones_router.delete("/{zone_id}", status_code=204, dependencies=[Depends(require_role(Role.ADMIN))])
+@router.delete("/zones/{zone_id}", status_code=204, dependencies=[Depends(require_role(Role.ADMIN))])
+async def delete_zone(
+    zone_id: str,
+    user: dict = Depends(get_current_user),
+    service: CameraRegistryService = Depends(get_service)
+):
+    zone = await service.get_zone(zone_id)
+    if not zone:
+        raise HTTPException(status_code=404, detail="Zone not found")
+    verify_resource_org(zone.get("organization_id"), user)
+    try:
+        await service.delete_zone(zone_id)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except RuntimeError as e:
+        logger.error(f"Zone deletion aborted due to safety check failure for zone_id={zone_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Administrative deletion aborted: database safety dependency check failed. Consult server logs."
+        )
+    await _audit(service, "zone_deleted", "zone", zone_id, user, {"name": zone.get("name"), "site_id": str(zone.get("site_id")) if zone.get("site_id") else None})
 
 # --- Camera Endpoints ---
 @router.post("", status_code=201, dependencies=[Depends(require_role(Role.ADMIN))])
@@ -302,7 +481,9 @@ async def create_camera(
                 raise HTTPException(status_code=403, detail="Cross-organization access forbidden")
         if not body.organization_id and user_org:
             body.organization_id = UUID(str(user_org))
-    return await service.create_camera(body)
+    cam = await service.create_camera(body)
+    await _audit(service, "camera_created", "camera", cam["id"], user, {"name": cam["name"], "location": cam.get("location")})
+    return cam
 
 @router.get("")
 async def list_cameras(
@@ -337,7 +518,7 @@ async def assign_camera_zone(
     user: dict = Depends(get_current_user),
     service: CameraRegistryService = Depends(get_service)
 ):
-    camera = await service.get_camera(camera_id)
+    camera = await service.get_camera(camera_id, include_disabled=True)
     if not camera:
         raise HTTPException(status_code=404, detail="Camera not found")
     verify_resource_org(camera.get("organization_id"), user)
@@ -361,6 +542,14 @@ async def assign_camera_zone(
     )
     if not res:
         raise HTTPException(status_code=404, detail="Camera not found")
+    await _audit(
+        service,
+        "camera_zone_assigned",
+        "camera",
+        camera_id,
+        user,
+        {"site_id": str(body.site_id) if body.site_id else None, "zone_id": str(body.zone_id) if body.zone_id else None, "lifecycle_state": body.lifecycle_state}
+    )
     return res
 
 @router.get("/{camera_id}/hierarchy")
@@ -387,15 +576,56 @@ async def update_config(
         raise HTTPException(status_code=404, detail="Camera not found")
     verify_resource_org(camera.get("organization_id"), user)
     await service.update_config(camera_id, body)
+    await _audit(
+        service,
+        "camera_config_updated",
+        "camera",
+        camera_id,
+        user,
+        {"fields": list(body.model_dump(exclude_unset=True).keys())}
+    )
     return {"status": "updated"}
 
-@router.delete("/{camera_id}", status_code=204, dependencies=[Depends(require_role(Role.SUPERADMIN))])
+@router.delete("/{camera_id}", status_code=204, dependencies=[Depends(require_role(Role.ADMIN))])
 async def delete_camera(
     camera_id: str,
     user: dict = Depends(get_current_user),
     service: CameraRegistryService = Depends(get_service),
 ): 
-    await service.delete_camera(camera_id)
+    camera = await service.get_camera(camera_id, include_disabled=True)
+    if not camera:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    verify_resource_org(camera.get("organization_id"), user)
+    await service.decommission_camera(camera_id)
+    await _audit(
+        service,
+        "camera_decommissioned",
+        "camera",
+        camera_id,
+        user,
+        {"name": camera.get("name"), "status": "disabled", "lifecycle_state": "disabled"}
+    )
+
+@router.put("/{camera_id}/decommission", dependencies=[Depends(require_role(Role.ADMIN))])
+async def decommission_camera(
+    camera_id: str,
+    user: dict = Depends(get_current_user),
+    service: CameraRegistryService = Depends(get_service),
+):
+    camera = await service.get_camera(camera_id, include_disabled=True)
+    if not camera:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    verify_resource_org(camera.get("organization_id"), user)
+    updated = await service.decommission_camera(camera_id)
+    await _audit(
+        service,
+        "camera_decommissioned",
+        "camera",
+        camera_id,
+        user,
+        {"name": camera.get("name"), "status": "disabled", "lifecycle_state": "disabled"}
+    )
+    return updated
 
 @router.get("/{camera_id}")
 async def get_camera_by_id(

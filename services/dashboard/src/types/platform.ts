@@ -3,6 +3,7 @@ export interface Organization {
   name: string;
   code: string;
   tier: string;
+  timezone?: string;
   is_active: boolean;
   created_at: string;
   updated_at: string;

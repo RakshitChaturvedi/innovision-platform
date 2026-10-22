@@ -1,7 +1,6 @@
 import React from "react";
 import { NavLink, Outlet, Link } from "react-router-dom";
 import { useAuth } from "@/store/useAuth";
-import { hasMinimumRole } from "@/lib/rbac";
 import type { UserRole } from "@/types/auth";
 import { NotificationCenter } from "./NotificationCenter";
 import { ThemeToggle } from "./ThemeToggle";
@@ -9,16 +8,82 @@ import { ThemeToggle } from "./ThemeToggle";
 interface NavigationItem {
   label: string;
   to: string;
-  minimumRole: UserRole;
-  section: "Command & Live Ops" | "Fleet & Hierarchy" | "Governance";
+  allowedRoles: UserRole[];
+  section: string;
   icon: React.ReactNode;
 }
 
-const navigation: NavigationItem[] = [
+const allNavigation: NavigationItem[] = [
+  // SUPERADMIN (Platform Sovereign)
   {
-    label: "Executive Dashboard",
+    label: "Platform Control Center",
     to: "/",
-    minimumRole: "viewer",
+    allowedRoles: ["superadmin"],
+    section: "Platform Control",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="7" height="9" rx="1" />
+        <rect x="14" y="3" width="7" height="5" rx="1" />
+        <rect x="14" y="12" width="7" height="9" rx="1" />
+        <rect x="3" y="16" width="7" height="5" rx="1" />
+      </svg>
+    ),
+  },
+  {
+    label: "AI Analytics Catalog",
+    to: "/analytics",
+    allowedRoles: ["superadmin"],
+    section: "Platform Control",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+      </svg>
+    ),
+  },
+  {
+    label: "User Accounts",
+    to: "/admin/users",
+    allowedRoles: ["superadmin"],
+    section: "Governance & Security",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      </svg>
+    ),
+  },
+  {
+    label: "Forensic Audit Ledger",
+    to: "/audit-log",
+    allowedRoles: ["superadmin"],
+    section: "Governance & Security",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10" />
+        <polyline points="12 6 12 12 14 14" />
+      </svg>
+    ),
+  },
+  {
+    label: "Platform Settings",
+    to: "/settings",
+    allowedRoles: ["superadmin"],
+    section: "Governance & Security",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+      </svg>
+    ),
+  },
+
+  // ORG_ADMIN / ADMIN (Operational Plant Authority)
+  {
+    label: "Operations Dashboard",
+    to: "/",
+    allowedRoles: ["admin", "org_admin"],
     section: "Command & Live Ops",
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -32,7 +97,7 @@ const navigation: NavigationItem[] = [
   {
     label: "Live Video Wall",
     to: "/live-monitoring",
-    minimumRole: "viewer",
+    allowedRoles: ["admin", "org_admin", "operator", "viewer"],
     section: "Command & Live Ops",
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -44,7 +109,7 @@ const navigation: NavigationItem[] = [
   {
     label: "Alert Center",
     to: "/alerts",
-    minimumRole: "viewer",
+    allowedRoles: ["admin", "org_admin", "operator"],
     section: "Command & Live Ops",
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -56,7 +121,7 @@ const navigation: NavigationItem[] = [
   {
     label: "Incident Triage",
     to: "/incidents",
-    minimumRole: "viewer",
+    allowedRoles: ["admin", "org_admin", "operator"],
     section: "Command & Live Ops",
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -69,7 +134,7 @@ const navigation: NavigationItem[] = [
   {
     label: "Sites & Zones",
     to: "/sites-zones",
-    minimumRole: "admin",
+    allowedRoles: ["admin", "org_admin"],
     section: "Fleet & Hierarchy",
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -85,7 +150,7 @@ const navigation: NavigationItem[] = [
   {
     label: "Camera Registry",
     to: "/admin/cameras",
-    minimumRole: "admin",
+    allowedRoles: ["admin", "org_admin"],
     section: "Fleet & Hierarchy",
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -97,7 +162,7 @@ const navigation: NavigationItem[] = [
   {
     label: "AI Analytics Catalog",
     to: "/analytics",
-    minimumRole: "viewer",
+    allowedRoles: ["admin", "org_admin", "operator", "viewer"],
     section: "Fleet & Hierarchy",
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -108,8 +173,8 @@ const navigation: NavigationItem[] = [
   {
     label: "Safety Reports",
     to: "/reports",
-    minimumRole: "operator",
-    section: "Governance",
+    allowedRoles: ["admin", "org_admin", "operator"],
+    section: "Governance & Reporting",
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -122,8 +187,8 @@ const navigation: NavigationItem[] = [
   {
     label: "Forensic Audit Log",
     to: "/audit-log",
-    minimumRole: "admin",
-    section: "Governance",
+    allowedRoles: ["admin", "org_admin"],
+    section: "Governance & Reporting",
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="12" cy="12" r="10" />
@@ -132,24 +197,10 @@ const navigation: NavigationItem[] = [
     ),
   },
   {
-    label: "Users & Roles",
-    to: "/admin/users",
-    minimumRole: "superadmin",
-    section: "Governance",
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-        <circle cx="9" cy="7" r="4" />
-        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-      </svg>
-    ),
-  },
-  {
     label: "Platform Settings",
     to: "/settings",
-    minimumRole: "admin",
-    section: "Governance",
+    allowedRoles: ["admin", "org_admin"],
+    section: "Governance & Reporting",
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="12" cy="12" r="3" />
@@ -162,22 +213,26 @@ const navigation: NavigationItem[] = [
 export function AppLayout() {
   const { user, logout } = useAuth();
 
-  const visibleNavigation = navigation.filter((item) =>
-    hasMinimumRole(user, item.minimumRole),
+  const userRole = user?.role || "viewer";
+
+  // Filter navigation strictly by current user's role
+  const visibleNavigation = allNavigation.filter((item) =>
+    item.allowedRoles.includes(userRole)
   );
 
-  const sections: NavigationItem["section"][] = [
-    "Command & Live Ops",
-    "Fleet & Hierarchy",
-    "Governance",
-  ];
+  // Group into ordered distinct sections
+  const sections = Array.from(new Set(visibleNavigation.map((item) => item.section)));
+
+  const defaultHomeLink = userRole === "operator" ? "/alerts" : userRole === "viewer" ? "/live-monitoring" : "/";
+  const brandSubTitle = userRole === "superadmin" ? "Platform Sovereign Command" : "Safety & Operations Command";
+
 
   return (
     <div className="app-shell">
       {/* Sleek, Professional Sidebar */}
       <aside className="app-sidebar">
         {/* Brand Header */}
-        <Link to="/" className="sidebar-brand-link">
+        <Link to={defaultHomeLink} className="sidebar-brand-link">
           <div className="brand-mark-red">
             <svg
               width="18"
@@ -200,7 +255,7 @@ export function AppLayout() {
               INNOVISION
               <span className="brand-mini-badge">AI</span>
             </div>
-            <div className="brand-sub-text">Safety &amp; Operations Command</div>
+            <div className="brand-sub-text">{brandSubTitle}</div>
           </div>
         </Link>
 
@@ -289,7 +344,7 @@ export function AppLayout() {
           <div className="header-breadcrumbs">
             <span className="header-status-pulse">
               <span className="status-ping-dot" />
-              <span>CLUSTER OPERATIONAL</span>
+              <span>{userRole === "superadmin" ? "PLATFORM SOVEREIGNTY ACTIVE" : "CLUSTER OPERATIONAL"}</span>
             </span>
           </div>
 

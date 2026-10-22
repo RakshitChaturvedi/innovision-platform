@@ -1,8 +1,13 @@
 import { cameraClient } from "./client";
-import type { Camera } from "@/types/camera";
+import type { Camera, CameraCreatePayload } from "@/types/camera";
 
 export async function getCameras(): Promise<Camera[]> {
   const { data } = await cameraClient.get<Camera[]>("/cameras");
+  return data;
+}
+
+export async function createCamera(payload: CameraCreatePayload): Promise<Camera> {
+  const { data } = await cameraClient.post<Camera>("/cameras", payload);
   return data;
 }
 
@@ -112,4 +117,8 @@ export async function stopCameraVideoSession(
     `/cameras/${cameraId}/video-sessions/${sessionId}/stop`,
   );
   return data;
+}
+
+export async function decommissionCamera(cameraId: string): Promise<void> {
+  await cameraClient.delete(`/cameras/${cameraId}`);
 }

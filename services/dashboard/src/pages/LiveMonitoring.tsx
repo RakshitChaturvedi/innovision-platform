@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { getCameras } from "@/api/cameras";
 import { getZones } from "@/api/platform";
@@ -200,7 +201,35 @@ export function LiveMonitoring() {
       </header>
 
       {/* Video Wall Grid */}
-      {filtered.length === 0 ? (
+      {cameraList.length === 0 ? (
+        <div style={{ background: "var(--surface)", border: "1px dashed var(--border)", borderRadius: "8px", padding: "48px 24px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: "10px", margin: "40px auto", maxWidth: "540px" }}>
+          <div style={{ width: "48px", height: "48px", borderRadius: "50%", background: "var(--surface-raised)", border: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "22px" }}>
+            📹
+          </div>
+          <div style={{ fontSize: "16px", fontWeight: 700, color: "var(--text-primary)" }}>
+            No Active Camera Streams
+          </div>
+          <p style={{ fontSize: "13px", color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>
+            No operational cameras are configured for this organization. An organization administrator can register plant camera feeds in Camera Administration to view live monitoring streams.
+          </p>
+          <Link
+            to="/admin/cameras"
+            style={{
+              background: "var(--primary, #3b82f6)",
+              border: "none",
+              color: "#ffffff",
+              padding: "7px 18px",
+              borderRadius: "6px",
+              fontSize: "13px",
+              fontWeight: 600,
+              textDecoration: "none",
+              marginTop: "6px",
+            }}
+          >
+            Go to Camera Administration
+          </Link>
+        </div>
+      ) : filtered.length === 0 ? (
         <EmptyState message="No live camera feeds match the selected filters." />
       ) : (
         <div

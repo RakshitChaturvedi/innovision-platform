@@ -19,10 +19,8 @@ from services.auth.src.rbac import Role
 
 @pytest_asyncio.fixture
 async def session_factory():
-    db_url = os.getenv(
-        "DATABASE_URL_LOCAL",
-        "postgresql+asyncpg://innovision:changeme@localhost:5433/innovision_platform"
-    )
+    from conftest import get_safe_test_db_url
+    db_url = get_safe_test_db_url()
     if "@postgres:5432" in db_url:
         db_url = db_url.replace("@postgres:5432", "@localhost:5433")
 

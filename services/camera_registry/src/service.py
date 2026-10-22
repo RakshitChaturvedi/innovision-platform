@@ -1,3 +1,4 @@
+import os
 import logging
 import uuid
 import json
@@ -8,7 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from services.camera_registry.src.schemas import (
     CameraCreate, CameraConfigUpdate,
-    OrganizationCreate, SiteCreate, ZoneCreate,
+    OrganizationCreate, OrganizationUpdate, OrganizationStatusUpdate,
+    SiteCreate, SiteUpdate,
+    ZoneCreate, ZoneUpdate,
     OrganizationSubscriptionCreate, OrganizationSubscriptionUpdate,
     ZonePPERuleItem
 )
@@ -49,6 +52,36 @@ class CameraRegistryService:
             res = row.fetchone()
             return dict(res._mapping) if res else None
 
+    async def update_organization(self, org_id: str, data: OrganizationUpdate) -> dict | None:
+        async with self._session_factory() as session:
+            async with session.begin():
+                row = await session.execute(text("SELECT id FROM organizations WHERE id = :id"), {"id": org_id})
+                if not row.fetchone():
+                    return None
+                updates = []
+                params = {"id": org_id}
+                if data.name is not None:
+                    updates.append("name = :name")
+                    params["name"] = data.name
+                if data.tier is not None:
+                    updates.append("tier = :tier")
+                    params["tier"] = data.tier
+                if updates:
+                    updates.append("updated_at = now()")
+                    await session.execute(text(f"UPDATE organizations SET {', '.join(updates)} WHERE id = :id"), params)
+                r = await session.execute(text("SELECT id, name, code, tier, is_active, created_at, updated_at FROM organizations WHERE id = :id"), {"id": org_id})
+                return dict(r.fetchone()._mapping)
+
+    async def update_organization_status(self, org_id: str, is_active: bool) -> dict | None:
+        async with self._session_factory() as session:
+            async with session.begin():
+                row = await session.execute(text("SELECT id FROM organizations WHERE id = :id"), {"id": org_id})
+                if not row.fetchone():
+                    return None
+                await session.execute(text("UPDATE organizations SET is_active = :is_active, updated_at = now() WHERE id = :id"), {"id": org_id, "is_active": is_active})
+                r = await session.execute(text("SELECT id, name, code, tier, is_active, created_at, updated_at FROM organizations WHERE id = :id"), {"id": org_id})
+                return dict(r.fetchone()._mapping)
+
     # --- Sites ---
     async def create_site(self, data: SiteCreate) -> dict:
         site_id = str(uuid.uuid4())
@@ -81,6 +114,64 @@ class CameraRegistryService:
             row = await session.execute(text("SELECT id, organization_id, name, code, address, timezone, created_at, updated_at FROM sites WHERE id = :id"), {"id": site_id})
             res = row.fetchone()
             return dict(res._mapping) if res else None
+
+    async def update_site(self, site_id: str, data: SiteUpdate) -> dict | None:
+        async with self._session_factory() as session:
+            async with session.begin():
+                row = await session.execute(text("SELECT id FROM sites WHERE id = :id"), {"id": site_id})
+                if not row.fetchone():
+                    return None
+                updates = []
+                params = {"id": site_id}
+                if data.name is not None:
+                    updates.append("name = :name")
+                    params["name"] = data.name
+                if data.code is not None:
+                    updates.append("code = :code")
+                    params["code"] = data.code
+                if data.address is not None:
+                    updates.append("address = :address")
+                    params["address"] = data.address
+                if data.timezone is not None:
+                    updates.append("timezone = :timezone")
+                    params["timezone"] = data.timezone
+                if updates:
+                    updates.append("updated_at = now()")
+                    await session.execute(text(f"UPDATE sites SET {', '.join(updates)} WHERE id = :id"), params)
+                r = await session.execute(text("SELECT id, organization_id, name, code, address, timezone, created_at, updated_at FROM sites WHERE id = :id"), {"id": site_id})
+                return dict(r.fetchone()._mapping)
+
+    async def delete_site(self, site_id: str) -> None:
+        async with self._session_factory() as session:
+            async with session.begin():
+                # 1. Dependency check: child zones
+                z_count = await session.execute(text("SELECT count(*) FROM zones WHERE site_id = :id"), {"id": site_id})
+                if z_count.scalar() > 0:
+                    raise ValueError("Cannot delete site: child zones are associated with this site. Remove or reassign zones first.")
+
+                # 2. Dependency check: any cameras referencing this site (including decommissioned)
+                c_count = await session.execute(
+                    text("SELECT count(*) FROM cameras WHERE site_id = :id"),
+                    {"id": site_id}
+                )
+                if c_count.scalar() > 0:
+                    raise ValueError("Cannot delete site: cameras (including decommissioned cameras) reference this site. Reassign cameras to another site before deleting.")
+
+                # 3. Dependency check: historical incidents
+                try:
+                    i_count = await session.execute(
+                        text("SELECT count(*) FROM incidents WHERE site_id = :id"),
+                        {"id": site_id}
+                    )
+                    if i_count.scalar() > 0:
+                        raise ValueError("Cannot delete site: historical incidents reference this site. Reassign incidents or retain site for compliance history.")
+                except ValueError:
+                    raise
+                except Exception as e:
+                    logger.error(f"Failed to verify historical incidents dependency for site {site_id}: {e}")
+                    raise RuntimeError(f"Database error during site historical dependency check: {e}. Site deletion aborted.")
+
+                await session.execute(text("DELETE FROM sites WHERE id = :id"), {"id": site_id})
 
     # --- Zones ---
     async def create_zone(self, data: ZoneCreate) -> dict:
@@ -138,6 +229,110 @@ class CameraRegistryService:
             """), {"id": zone_id})
             res = row.fetchone()
             return dict(res._mapping) if res else None
+
+    async def update_zone(self, zone_id: str, data: ZoneUpdate) -> dict | None:
+        async with self._session_factory() as session:
+            async with session.begin():
+                row = await session.execute(text("SELECT id FROM zones WHERE id = :id"), {"id": zone_id})
+                if not row.fetchone():
+                    return None
+                updates = []
+                params = {"id": zone_id}
+                if data.name is not None:
+                    updates.append("name = :name")
+                    params["name"] = data.name
+                if data.description is not None:
+                    updates.append("description = :description")
+                    params["description"] = data.description
+                if data.zone_type is not None:
+                    updates.append("zone_type = :zone_type")
+                    params["zone_type"] = data.zone_type
+                if data.risk_level is not None:
+                    updates.append("risk_level = :risk_level")
+                    params["risk_level"] = data.risk_level
+                if data.is_active is not None:
+                    updates.append("active = :active")
+                    params["active"] = data.is_active
+                if updates:
+                    updates.append("updated_at = now()")
+                    await session.execute(text(f"UPDATE zones SET {', '.join(updates)} WHERE id = :id"), params)
+                r = await session.execute(text("""
+                    SELECT z.id, z.site_id, z.name, z.slug, z.description, z.zone_type, z.risk_level, z.active AS is_active, z.created_at, z.updated_at, s.organization_id
+                    FROM zones z
+                    LEFT JOIN sites s ON z.site_id = s.id
+                    WHERE z.id = :id
+                """), {"id": zone_id})
+                return dict(r.fetchone()._mapping)
+
+    async def delete_zone(self, zone_id: str) -> None:
+        async with self._session_factory() as session:
+            async with session.begin():
+                # 1. Dependency check: any cameras referencing this zone (active or decommissioned)
+                c_count = await session.execute(
+                    text("SELECT count(*) FROM cameras WHERE zone_id = :id"),
+                    {"id": zone_id}
+                )
+                if c_count.scalar() > 0:
+                    raise ValueError("Cannot delete zone: active cameras are assigned to this zone (or decommissioned cameras still reference it). Reassign cameras to another zone or unassign them first.")
+
+                # 2. Dependency check: historical compliance and safety event records
+                try:
+                    # 2a. Historical compliance events
+                    ce_count = await session.execute(
+                        text("SELECT count(*) FROM compliance_events WHERE zone_id = :id"),
+                        {"id": zone_id}
+                    )
+                    if ce_count.scalar() > 0:
+                        raise ValueError("Cannot delete zone: historical compliance event records reference this zone. Deactivate the zone instead to preserve compliance history.")
+
+                    # 2b. Historical daily person compliance records
+                    pdc_count = await session.execute(
+                        text("SELECT count(*) FROM person_daily_compliance WHERE zone_id = :id"),
+                        {"id": zone_id}
+                    )
+                    if pdc_count.scalar() > 0:
+                        raise ValueError("Cannot delete zone: daily person compliance records reference this zone. Deactivate the zone instead to preserve compliance history.")
+
+                    # 2c. Historical incidents
+                    inc_count = await session.execute(
+                        text("SELECT count(*) FROM incidents WHERE zone_id = :id"),
+                        {"id": zone_id}
+                    )
+                    if inc_count.scalar() > 0:
+                        raise ValueError("Cannot delete zone: historical incident records reference this zone. Deactivate the zone instead to preserve compliance history.")
+
+                    # 2d. UC3 safety events (with documented schema-compatibility policy)
+                    reg_check = await session.execute(text("SELECT to_regclass('public.uc3_events')"))
+                    if reg_check.scalar() is not None:
+                        uc3_count = await session.execute(
+                            text("SELECT count(*) FROM uc3_events WHERE zone_id = :id"),
+                            {"id": zone_id}
+                        )
+                        if uc3_count.scalar() > 0:
+                            raise ValueError("Cannot delete zone: historical safety event records (uc3_events) reference this zone. Deactivate the zone instead to preserve compliance history.")
+                    else:
+                        # Documented schema-compatibility policy:
+                        # In full deployments, uc3_events is required. Only decoupled environments
+                        # with INNOVISION_ALLOW_OPTIONAL_UC3_TABLES=1 may bypass a missing uc3_events table.
+                        allow_optional = os.getenv("INNOVISION_ALLOW_OPTIONAL_UC3_TABLES", "0").lower() in ("1", "true", "yes")
+                        if not allow_optional:
+                            raise RuntimeError(
+                                "Required safety table 'uc3_events' is missing from the database. "
+                                "Zone deletion aborted to prevent undetected data loss. "
+                                "Set INNOVISION_ALLOW_OPTIONAL_UC3_TABLES=1 only in verified decoupled environments."
+                            )
+                        logger.warning(
+                            "Optional table 'uc3_events' is not present in database; skipping check per documented compatibility policy."
+                        )
+                except ValueError:
+                    raise
+                except Exception as e:
+                    logger.error(f"Failed to verify historical dependencies for zone {zone_id}: {e}")
+                    raise RuntimeError(f"Database error during safety dependency check: {e}. Zone deletion aborted.")
+
+                # Safe cleanup of related policies and rules
+                await session.execute(text("DELETE FROM zone_analytics_policies WHERE zone_id = :id"), {"id": zone_id})
+                await session.execute(text("DELETE FROM zones WHERE id = :id"), {"id": zone_id})
 
     # --- Cameras ---
     async def create_camera(self, data: CameraCreate) -> dict:
@@ -197,7 +392,7 @@ class CameraRegistryService:
 
                 await session.execute(text("""
                     UPDATE cameras
-                    SET organization_id = :org_id,
+                    SET organization_id = COALESCE(:org_id, organization_id),
                         site_id = :site_id,
                         zone_id = :zone_id,
                         lifecycle_state = :lifecycle_state,
@@ -283,16 +478,27 @@ class CameraRegistryService:
         await self._redis.publish(f"camera:updated:{camera_id}", camera_id)
         logger.info("camera_updated id=%s field=%s", camera_id, list(updates.keys()))
 
-    async def delete_camera(self, camera_id: str) -> None:
+    async def decommission_camera(self, camera_id: str) -> dict | None:
         async with self._session_factory() as session:
             async with session.begin():
+                row = await session.execute(
+                    text("SELECT id, name, organization_id, site_id, zone_id, lifecycle_state, status FROM cameras WHERE id = :id"),
+                    {"id": camera_id}
+                )
+                cam = row.fetchone()
+                if not cam:
+                    return None
                 await session.execute(
-                    text("UPDATE cameras SET status = 'disabled' WHERE id = :id"),
+                    text("UPDATE cameras SET status = 'disabled', lifecycle_state = 'disabled', updated_at = now() WHERE id = :id"),
                     {"id": camera_id},
                 )
         await self.recalculate_effective_analytics([camera_id])
         await self._redis.publish(f"camera:removed:{camera_id}", camera_id)
-        logger.info("camera_removed id=%s", camera_id)
+        logger.info("camera_decommissioned id=%s", camera_id)
+        return await self.get_camera(camera_id, include_disabled=True)
+
+    async def delete_camera(self, camera_id: str) -> dict | None:
+        return await self.decommission_camera(camera_id)
 
     async def get_cameras_for_uc(self, uc_id: str) -> list[str]:
         async with self._session_factory() as session:
@@ -330,24 +536,20 @@ class CameraRegistryService:
                 """), {"status": status, "id": camera_id})
         await self.recalculate_effective_analytics([camera_id])
 
-    async def get_camera(self, camera_id: str) -> dict | None:
+    async def get_camera(self, camera_id: str, include_disabled: bool = False) -> dict | None:
         async with self._session_factory() as session:
-            row = await session.execute(
-                text("""
-                    SELECT id, name, location, rtsp_url, status, fps, use_cases,
-                           organization_id, site_id, zone_id, lifecycle_state, source_type, source_url, is_simulation
-                    FROM cameras
-                    WHERE id = :id
-                    AND status != 'disabled'
-                """),
-                {"id": camera_id},
-            )
-
+            sql = """
+                SELECT id, name, location, rtsp_url, status, fps, use_cases,
+                       organization_id, site_id, zone_id, lifecycle_state, source_type, source_url, is_simulation
+                FROM cameras
+                WHERE id = :id
+            """
+            if not include_disabled:
+                sql += " AND status != 'disabled'"
+            row = await session.execute(text(sql), {"id": camera_id})
             camera = row.fetchone()
-
             if not camera:
                 return None
-
             return dict(camera._mapping)
 
     # --- Analytics Catalog (Phase 2) ---

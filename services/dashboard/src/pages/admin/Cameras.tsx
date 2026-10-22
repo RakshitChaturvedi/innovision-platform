@@ -11,7 +11,7 @@ import {
   assignCameraZone,
   getAnalyticsCatalog,
 } from "@/api/platform";
-import { getCameras } from "@/api/cameras";
+import { getCameras, createCamera, decommissionCamera } from "@/api/cameras";
 import { LoadingState } from "@/components/common/LoadingState";
 import { ErrorState } from "@/components/common/ErrorState";
 import { useAuth } from "@/store/useAuth";
@@ -26,6 +26,17 @@ export function Cameras() {
   const [selectedCamera, setSelectedCamera] = useState<CameraExtendedHierarchy | null>(null);
   const [showOverrideDrawer, setShowOverrideDrawer] = useState<boolean>(false);
   const [showAssignZoneModal, setShowAssignZoneModal] = useState<boolean>(false);
+  const [showCreateCameraModal, setShowCreateCameraModal] = useState<boolean>(false);
+  const [decommissioningCamera, setDecommissioningCamera] = useState<CameraExtendedHierarchy | null>(null);
+
+  // New Camera Form State
+  const [newCameraName, setNewCameraName] = useState("");
+  const [newCameraLocation, setNewCameraLocation] = useState("");
+  const [newCameraRtspUrl, setNewCameraRtspUrl] = useState("");
+  const [newCameraSiteId, setNewCameraSiteId] = useState("");
+  const [newCameraZoneId, setNewCameraZoneId] = useState("");
+  const [newCameraFps, setNewCameraFps] = useState(15);
+  const [newCameraUseCases, setNewCameraUseCases] = useState<string[]>(["uc2", "uc3", "uc4"]);
 
   // Assign Zone form state
   const [assignSiteId, setAssignSiteId] = useState<string>("");
@@ -36,9 +47,9 @@ export function Cameras() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  // Queries
+  // Queries - Strictly scoped to user's organization
   const { data: orgs } = useQuery({ queryKey: ["organizations"], queryFn: getOrganizations });
-  const activeOrgId = orgs && orgs.length > 0 ? orgs[0].id : "";
+  const activeOrgId = user?.organization_id || (orgs && orgs.length > 0 ? orgs[0].id : "");
 
   const { data: catalog } = useQuery({ queryKey: ["analyticsCatalog"], queryFn: getAnalyticsCatalog });
   const { data: sites } = useQuery({ queryKey: ["sites", activeOrgId], queryFn: () => getSites(activeOrgId), enabled: Boolean(activeOrgId) });
@@ -56,6 +67,50 @@ export function Cameras() {
     queryKey: ["zones", assignSiteId],
     queryFn: () => getZones(assignSiteId),
     enabled: Boolean(assignSiteId),
+  });
+
+  const { data: newCamZones } = useQuery({
+    queryKey: ["zones", newCameraSiteId],
+    queryFn: () => getZones(newCameraSiteId),
+    enabled: Boolean(newCameraSiteId),
+  });
+
+  // Create Camera Mutation
+  const createCameraMutation = useMutation({
+    mutationFn: () => {
+      const trimmedName = newCameraName.trim();
+      if (!trimmedName) {
+        throw new Error("Camera name is required.");
+      }
+      const streamUrl = newCameraRtspUrl.trim() || `upload://${encodeURIComponent(trimmedName.toLowerCase().replace(/[^a-z0-9]+/g, "_"))}`;
+      return createCamera({
+        name: trimmedName,
+        location: newCameraLocation.trim() || undefined,
+        rtsp_url: streamUrl,
+        fps: Number(newCameraFps) || 15,
+        use_cases: newCameraUseCases,
+        site_id: newCameraSiteId || undefined,
+        zone_id: newCameraZoneId || undefined,
+        organization_id: user?.organization_id || undefined,
+        lifecycle_state: newCameraZoneId ? "active" : "unassigned",
+        source_type: streamUrl.startsWith("rtsp://") ? "rtsp" : "uploaded_video",
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["camerasExtended"] });
+      queryClient.invalidateQueries({ queryKey: ["cameras"] });
+      setShowCreateCameraModal(false);
+      setNewCameraName("");
+      setNewCameraLocation("");
+      setNewCameraRtspUrl("");
+      setNewCameraSiteId("");
+      setNewCameraZoneId("");
+      setSuccessMsg("Camera registered successfully.");
+      setErrorMsg(null);
+    },
+    onError: (err: any) => {
+      setErrorMsg(err?.response?.data?.detail || err.message || "Failed to register camera.");
+    },
   });
 
   // Camera Effective Analytics Query (when camera selected)
@@ -126,6 +181,21 @@ export function Cameras() {
     onError: (err: Error) => setErrorMsg(err.message || "Failed to remove override"),
   });
 
+  // Decommission Camera Mutation
+  const decommissionCameraMutation = useMutation({
+    mutationFn: (cameraId: string) => decommissionCamera(cameraId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["cameras"] });
+      queryClient.invalidateQueries({ queryKey: ["camerasExtended"] });
+      setDecommissioningCamera(null);
+      setSuccessMsg("Camera safely decommissioned. Historical alerts, incidents, and audit trails remain permanently preserved.");
+      setErrorMsg(null);
+    },
+    onError: (err: any) => {
+      setErrorMsg(err?.response?.data?.detail || err.message || "Failed to decommission camera");
+    },
+  });
+
   if (loadingCameras) return <LoadingState />;
   if (camerasError) return <ErrorState message="Failed to load camera registry." />;
 
@@ -133,13 +203,36 @@ export function Cameras() {
 
   return (
     <div className="page">
-      <header className="page-header">
+      <header className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "16px", marginBottom: "20px" }}>
         <div>
           <h1 className="page-title">Camera Administration & Analytics Overrides</h1>
           <p className="page-description">
             Manage camera registry, physical zone placement, and camera-level analytics overrides.
           </p>
         </div>
+
+        {isUserAdmin && (
+          <button
+            type="button"
+            onClick={() => setShowCreateCameraModal(true)}
+            style={{
+              background: "var(--primary, #3b82f6)",
+              color: "#ffffff",
+              border: "none",
+              borderRadius: "6px",
+              padding: "8px 16px",
+              fontSize: "13px",
+              fontWeight: 600,
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+            }}
+          >
+            <span>+</span>
+            <span>Register Camera</span>
+          </button>
+        )}
       </header>
 
       {errorMsg && (
@@ -242,6 +335,23 @@ export function Cameras() {
                         >
                           Overrides
                         </button>
+                        {isUserAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => setDecommissioningCamera(cam)}
+                            style={{
+                              background: "rgba(239, 68, 68, 0.1)",
+                              border: "1px solid rgba(239, 68, 68, 0.3)",
+                              color: "var(--danger)",
+                              padding: "4px 10px",
+                              borderRadius: "4px",
+                              fontSize: "12px",
+                              cursor: "pointer",
+                            }}
+                          >
+                            Decommission
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -249,8 +359,37 @@ export function Cameras() {
               })
             ) : (
               <tr>
-                <td colSpan={5} style={{ padding: "30px", textAlign: "center", color: "var(--text-muted)" }}>
-                  No cameras registered in system.
+                <td colSpan={5} style={{ padding: "48px 24px", textAlign: "center" }}>
+                  <div style={{ maxWidth: "440px", margin: "0 auto", display: "flex", flexDirection: "column", alignItems: "center", gap: "10px" }}>
+                    <div style={{ width: "44px", height: "44px", borderRadius: "50%", background: "var(--surface-raised)", border: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px" }}>
+                      📹
+                    </div>
+                    <div style={{ fontSize: "15px", fontWeight: 700, color: "var(--text-primary)" }}>
+                      No Cameras Registered
+                    </div>
+                    <p style={{ fontSize: "13px", color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>
+                      No operational cameras are currently registered for your organization. Register an RTSP camera stream or a designated video upload ingestion source to begin live safety monitoring.
+                    </p>
+                    {isUserAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => setShowCreateCameraModal(true)}
+                        style={{
+                          background: "var(--primary, #3b82f6)",
+                          color: "#ffffff",
+                          border: "none",
+                          borderRadius: "6px",
+                          padding: "8px 18px",
+                          fontSize: "13px",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          marginTop: "6px",
+                        }}
+                      >
+                        + Register First Camera
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             )}
@@ -438,6 +577,229 @@ export function Cameras() {
                 style={{ background: "var(--primary)", border: "none", color: "#fff", padding: "6px 16px", borderRadius: "4px", fontWeight: 600 }}
               >
                 {assignZoneMutation.isPending ? "Assigning..." : "Save Assignment"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Register Camera */}
+      {showCreateCameraModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "20px" }}>
+          <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "8px", padding: "24px", width: "100%", maxWidth: "480px", maxHeight: "90vh", overflowY: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", paddingBottom: "12px", borderBottom: "1px solid var(--border)" }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: "17px", fontWeight: 700 }}>Register Operational Camera</h3>
+                <p style={{ margin: "2px 0 0 0", fontSize: "12px", color: "var(--text-muted)" }}>
+                  Add a plant camera feed for safety analytics and PPE compliance.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCreateCameraModal(false)}
+                style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: "18px", cursor: "pointer" }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "14px", marginBottom: "20px" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "4px" }}>
+                  Camera Name *
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Loading Dock Gate 01"
+                  value={newCameraName}
+                  onChange={(e) => setNewCameraName(e.target.value)}
+                  style={{ width: "100%", background: "var(--surface-raised)", border: "1px solid var(--border)", color: "var(--text-primary)", padding: "8px 12px", borderRadius: "4px", fontSize: "13px" }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "4px" }}>
+                  Physical Location
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. North Warehouse Sector B"
+                  value={newCameraLocation}
+                  onChange={(e) => setNewCameraLocation(e.target.value)}
+                  style={{ width: "100%", background: "var(--surface-raised)", border: "1px solid var(--border)", color: "var(--text-primary)", padding: "8px 12px", borderRadius: "4px", fontSize: "13px" }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "4px" }}>
+                  RTSP Stream URL (or leave blank for Upload-Only Testing)
+                </label>
+                <input
+                  type="text"
+                  placeholder="rtsp://192.168.1.100:554/live or leave blank"
+                  value={newCameraRtspUrl}
+                  onChange={(e) => setNewCameraRtspUrl(e.target.value)}
+                  style={{ width: "100%", background: "var(--surface-raised)", border: "1px solid var(--border)", color: "var(--text-primary)", padding: "8px 12px", borderRadius: "4px", fontSize: "13px" }}
+                />
+                <span style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "2px", display: "block" }}>
+                  Leave blank if you will test analytics strictly by uploading recorded video files.
+                </span>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                <div>
+                  <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "4px" }}>
+                    Plant Site
+                  </label>
+                  <select
+                    value={newCameraSiteId}
+                    onChange={(e) => {
+                      setNewCameraSiteId(e.target.value);
+                      setNewCameraZoneId("");
+                    }}
+                    style={{ width: "100%", background: "var(--surface-raised)", border: "1px solid var(--border)", color: "var(--text-primary)", padding: "8px 12px", borderRadius: "4px", fontSize: "13px" }}
+                  >
+                    <option value="">-- Unassigned Site --</option>
+                    {sites?.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} ({s.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "4px" }}>
+                    Physical Zone
+                  </label>
+                  <select
+                    value={newCameraZoneId}
+                    onChange={(e) => setNewCameraZoneId(e.target.value)}
+                    disabled={!newCameraSiteId}
+                    style={{ width: "100%", background: "var(--surface-raised)", border: "1px solid var(--border)", color: "var(--text-primary)", padding: "8px 12px", borderRadius: "4px", fontSize: "13px" }}
+                  >
+                    <option value="">-- Unassigned Zone --</option>
+                    {newCamZones?.map((z) => (
+                      <option key={z.id} value={z.id}>
+                        {z.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "4px" }}>
+                  Capture Frame Rate (FPS)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="60"
+                  value={newCameraFps}
+                  onChange={(e) => setNewCameraFps(Math.max(1, Math.min(60, Number(e.target.value) || 15)))}
+                  style={{ width: "100%", background: "var(--surface-raised)", border: "1px solid var(--border)", color: "var(--text-primary)", padding: "8px 12px", borderRadius: "4px", fontSize: "13px" }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "6px" }}>
+                  Assigned AI Capabilities
+                </label>
+                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                  {[
+                    { id: "uc2", label: "UC2 (Person Tracking)" },
+                    { id: "uc3", label: "UC3 (PPE Compliance)" },
+                    { id: "uc4", label: "UC4 (Forklift Proximity)" },
+                  ].map((uc) => {
+                    const isChecked = newCameraUseCases.includes(uc.id);
+                    return (
+                      <label key={uc.id} style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "var(--text-primary)", cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setNewCameraUseCases([...newCameraUseCases, uc.id]);
+                            } else {
+                              setNewCameraUseCases(newCameraUseCases.filter((id) => id !== uc.id));
+                            }
+                          }}
+                        />
+                        <span>{uc.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "12px" }}>
+              <button
+                type="button"
+                onClick={() => setShowCreateCameraModal(false)}
+                style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--text-secondary)", padding: "7px 16px", borderRadius: "4px", fontSize: "13px", cursor: "pointer" }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => createCameraMutation.mutate()}
+                disabled={!newCameraName.trim() || createCameraMutation.isPending}
+                style={{
+                  background: newCameraName.trim() && !createCameraMutation.isPending ? "var(--primary, #3b82f6)" : "var(--border)",
+                  border: "none",
+                  color: "#ffffff",
+                  padding: "7px 18px",
+                  borderRadius: "4px",
+                  fontWeight: 600,
+                  fontSize: "13px",
+                  cursor: newCameraName.trim() && !createCameraMutation.isPending ? "pointer" : "not-allowed",
+                }}
+              >
+                {createCameraMutation.isPending ? "Registering..." : "Register Camera"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal: Decommission Camera */}
+      {decommissioningCamera && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "16px" }}>
+          <div style={{ background: "var(--surface)", border: "1px solid rgba(239,68,68,0.4)", borderRadius: "8px", padding: "24px", width: "100%", maxWidth: "460px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
+              <span style={{ fontSize: "24px" }}>⚠️</span>
+              <h3 style={{ margin: 0, fontSize: "18px", color: "var(--danger)" }}>Confirm Camera Decommissioning</h3>
+            </div>
+            <p style={{ margin: "0 0 12px 0", fontSize: "13.5px", color: "var(--text-primary)", lineHeight: 1.5 }}>
+              Are you sure you want to decommission camera <strong>{decommissioningCamera.name}</strong>?
+            </p>
+            <div style={{ background: "var(--surface-raised)", border: "1px solid var(--border)", borderRadius: "6px", padding: "12px", marginBottom: "20px", fontSize: "12px", color: "var(--text-secondary)", lineHeight: 1.5 }}>
+              <div style={{ color: "var(--text-primary)", fontWeight: 600, marginBottom: "4px" }}>
+                Forensic &amp; Data Integrity Safeguards:
+              </div>
+              <ul style={{ margin: 0, paddingLeft: "18px" }}>
+                <li>Live camera stream and video ingestion will be safely disabled.</li>
+                <li>Historical alerts, incident records, and evidence files are permanently preserved.</li>
+                <li>Administrative mutation is logged to the forensic audit ledger.</li>
+              </ul>
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "12px" }}>
+              <button
+                type="button"
+                onClick={() => setDecommissioningCamera(null)}
+                style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--text-secondary)", padding: "7px 16px", borderRadius: "4px", fontSize: "13px", cursor: "pointer" }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={decommissionCameraMutation.isPending}
+                onClick={() => decommissionCameraMutation.mutate(decommissioningCamera.id)}
+                style={{ background: "var(--danger)", border: "none", color: "#fff", padding: "7px 18px", borderRadius: "4px", fontWeight: 600, fontSize: "13px", cursor: "pointer" }}
+              >
+                {decommissionCameraMutation.isPending ? "Decommissioning..." : "Confirm Decommission"}
               </button>
             </div>
           </div>

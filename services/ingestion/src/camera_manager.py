@@ -46,7 +46,8 @@ class CameraManager:
         self._stopped = False
         cameras = await self._registry_client.get_active_cameras()
         for camera in cameras:
-            await self._start_camera(camera)
+            if self.is_live_camera(camera):
+                await self._start_camera(camera)
 
         self._manager_tasks.append(
             asyncio.create_task(self._listen_camera_signals(), name="camera-manager-pubsub")
@@ -57,11 +58,26 @@ class CameraManager:
 
         logger.info("camera_manager_started active_cameras=%d",len(self._camera_tasks))
 
+    @staticmethod
+    def is_live_camera(camera: dict[str, Any]) -> bool:
+        """Determines whether a camera is eligible for live RTSP streaming ingestion.
+        Upload-only cameras (source_type == 'uploaded_video' or rtsp_url starting with 'upload://')
+        are processed exclusively on-demand via VideoSessionManager and must not enter live capture.
+        """
+        source_type = (camera.get("source_type") or "").strip().lower()
+        rtsp_url = (camera.get("rtsp_url") or "").strip().lower()
+        if source_type in ("uploaded_video", "upload") or rtsp_url.startswith("upload://"):
+            return False
+        return bool(rtsp_url)
+
     # 2. Cam lifecycle
     async def _start_camera(self, camera: dict[str, Any]) -> None:
         # start ingestion for 1 camera
-        
         camera_id = str(camera["id"])
+        if not self.is_live_camera(camera):
+            logger.info("camera_skipped_for_live_ingestion camera_id=%s source_type=%s", camera_id, camera.get("source_type"))
+            return
+
         if camera_id in self._camera_tasks:
             logger.debug("camera_already_running camera_id=%s",camera_id)
             return
@@ -200,14 +216,14 @@ class CameraManager:
                     break
                 try:
                     cameras = await self._registry_client.get_active_cameras()
-                    active_cameras = {str(camera["id"]): camera for camera in cameras}
-                    active_ids= set(active_cameras)
+                    live_cameras = {str(camera["id"]): camera for camera in cameras if self.is_live_camera(camera)}
+                    active_ids = set(live_cameras)
                     running_ids = set(self._camera_tasks)
 
                     # cams that should be running but arent
                     for camera_id in active_ids - running_ids:
-                        logger.warning("camera_missing_from_manager camera_id=%s", camera_id)
-                        await self._start_camera(active_cameras[camera_id])
+                        logger.info("camera_missing_from_manager camera_id=%s", camera_id)
+                        await self._start_camera(live_cameras[camera_id])
 
                     # cams that are running but no longer active
                     for camera_id in running_ids - active_ids:

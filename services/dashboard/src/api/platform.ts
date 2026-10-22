@@ -51,15 +51,34 @@ export async function createOrganization(payload: { name: string; code: string; 
   return data;
 }
 
+export async function updateOrganization(orgId: string, payload: { name?: string; tier?: string }): Promise<Organization> {
+  const { data } = await cameraClient.put<Organization>(`/cameras/organizations/${orgId}`, payload);
+  return data;
+}
+
+export async function updateOrganizationStatus(orgId: string, isActive: boolean): Promise<Organization> {
+  const { data } = await cameraClient.put<Organization>(`/cameras/organizations/${orgId}/status`, { is_active: isActive });
+  return data;
+}
+
 export async function getSites(orgId?: string): Promise<Site[]> {
   const params = orgId ? { organization_id: orgId } : {};
   const { data } = await cameraClient.get<Site[]>("/cameras/sites", { params });
   return data;
 }
 
-export async function createSite(payload: { organization_id: string; name: string; code: string; address?: string }): Promise<Site> {
+export async function createSite(payload: { organization_id: string; name: string; code: string; address?: string; timezone?: string }): Promise<Site> {
   const { data } = await cameraClient.post<Site>("/cameras/sites", payload);
   return data;
+}
+
+export async function updateSite(siteId: string, payload: { name?: string; code?: string; address?: string; timezone?: string }): Promise<Site> {
+  const { data } = await cameraClient.put<Site>(`/cameras/sites/${siteId}`, payload);
+  return data;
+}
+
+export async function deleteSite(siteId: string): Promise<void> {
+  await cameraClient.delete(`/cameras/sites/${siteId}`);
 }
 
 export async function getZones(siteId?: string): Promise<Zone[]> {
@@ -68,9 +87,22 @@ export async function getZones(siteId?: string): Promise<Zone[]> {
   return data;
 }
 
-export async function createZone(payload: { site_id?: string; name: string; zone_type?: string; risk_level?: string }): Promise<Zone> {
+export async function createZone(payload: { site_id?: string; name: string; zone_type?: string; risk_level?: string; description?: string }): Promise<Zone> {
   const { data } = await cameraClient.post<Zone>("/cameras/zones", payload);
   return data;
+}
+
+export async function updateZone(zoneId: string, payload: { name?: string; description?: string; zone_type?: string; risk_level?: string; is_active?: boolean }): Promise<Zone> {
+  const { data } = await cameraClient.put<Zone>(`/cameras/zones/${zoneId}`, payload);
+  return data;
+}
+
+export async function deleteZone(zoneId: string): Promise<void> {
+  await cameraClient.delete(`/cameras/zones/${zoneId}`);
+}
+
+export async function decommissionCamera(cameraId: string): Promise<void> {
+  await cameraClient.delete(`/cameras/${cameraId}`);
 }
 
 // --- Zone Analytics Policies & PPE Rules ---

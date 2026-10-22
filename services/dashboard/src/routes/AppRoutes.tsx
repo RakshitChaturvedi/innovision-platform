@@ -35,30 +35,42 @@ export function AppRoutes() {
         {/* Authenticated */}
         <Route element={<ProtectedRoute />}>
           <Route element={<AppLayout />}>
-            {/* Viewer+ */}
+            {/* Platform Control Center / Operations Master Dashboard */}
             <Route path="/" element={<MasterDashboard />} />
             <Route path="/dashboard" element={<MasterDashboard />} />
-            <Route path="/live-monitoring" element={<LiveMonitoring />} />
             <Route path="/analytics" element={<AnalyticsPage />} />
-            <Route path="/cameras/:cameraId" element={<CameraDetail />} />
-            <Route path="/alerts" element={<Alerts />} />
-            <Route path="/incidents" element={<Incidents />} />
 
-            {/* Operator+ */}
-            <Route element={<RoleRoute minimumRole="operator" />}>
+            {/* Operational Video Wall & Camera Detections: Company Roles Only (admin, org_admin, operator, viewer) */}
+            <Route element={<RoleRoute allowedRoles={["admin", "org_admin", "operator", "viewer"]} />}>
+              <Route path="/live-monitoring" element={<LiveMonitoring />} />
+              <Route path="/cameras/:cameraId" element={<CameraDetail />} />
+            </Route>
+
+            {/* Company Alert Queue & Incident Triage: Operator and Org Admins only */}
+            <Route element={<RoleRoute allowedRoles={["admin", "org_admin", "operator"]} />}>
+              <Route path="/alerts" element={<Alerts />} />
+              <Route path="/incidents" element={<Incidents />} />
+            </Route>
+
+            {/* Safety Compliance Reporting: Operator and Org Admins */}
+            <Route element={<RoleRoute allowedRoles={["admin", "org_admin", "operator"]} />}>
               <Route path="/reports" element={<Reports />} />
             </Route>
 
-            {/* Admin+ */}
-            <Route element={<RoleRoute minimumRole="admin" />}>
+            {/* Organization Facility Fleet & Policies: Org Admin / Admin only */}
+            <Route element={<RoleRoute allowedRoles={["admin", "org_admin"]} />}>
               <Route path="/sites-zones" element={<SitesZonesPage />} />
               <Route path="/admin/cameras" element={<Cameras />} />
+            </Route>
+
+            {/* Governance, Audit & Settings: Admin & Superadmin */}
+            <Route element={<RoleRoute allowedRoles={["superadmin", "admin", "org_admin"]} />}>
               <Route path="/audit-log" element={<AuditLogPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Route>
 
-            {/* Superadmin only */}
-            <Route element={<RoleRoute minimumRole="superadmin" />}>
+            {/* Sovereign Platform User Governance: Superadmin only */}
+            <Route element={<RoleRoute allowedRoles={["superadmin"]} />}>
               <Route path="/admin/users" element={<Users />} />
             </Route>
           </Route>

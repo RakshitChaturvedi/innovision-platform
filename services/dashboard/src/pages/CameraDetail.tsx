@@ -6,7 +6,6 @@ import {
   getCameraStatus,
   getCameraVideoSessions,
   uploadCameraVideo,
-  createCameraVideoSessionFromTestFile,
   processCameraVideoSession,
   stopCameraVideoSession,
   type VideoSession,
@@ -15,14 +14,6 @@ import { getCameraHierarchy, getCameraEffectiveAnalytics } from "@/api/platform"
 import { ErrorState } from "@/components/common/ErrorState";
 import { LoadingState } from "@/components/common/LoadingState";
 import LiveFeed from "@/components/cameras/LiveFeed";
-
-const AVAILABLE_TEST_VIDEOS = [
-  { name: "16864356_3840_2160_50fps.mp4", label: "Dynamic Test Video 1 (4K 50fps)" },
-  { name: "17039559_3840_2160_30fps.mp4", label: "Dynamic Test Video 2 (4K 30fps)" },
-  { name: "3c4cc90fb1dc4a51b0f4f75c5825156f.mp4", label: "Dynamic Test Video 3 (Standard)" },
-  { name: "uc2.mp4", label: "UC2 Test Sample" },
-  { name: "uc4.mp4", label: "UC4 Test Sample" },
-];
 
 export default function CameraDetail() {
   const { cameraId } = useParams<{ cameraId: string }>();
@@ -167,22 +158,6 @@ export default function CameraDetail() {
     } catch (err: unknown) {
       setUploadError(extractError(err, "Failed to upload video."));
       setUploadProgress(null);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  // Quick test video creation handler
-  const handleQuickAddTestVideo = async (filename: string) => {
-    setIsSubmitting(true);
-    setUploadError(null);
-    setActionError(null);
-    try {
-      const created = await createCameraVideoSessionFromTestFile(cameraId, filename);
-      setActiveSessionId(created.session_id);
-      await queryClient.invalidateQueries({ queryKey: ["cameraVideoSessions", cameraId] });
-    } catch (err: unknown) {
-      setActionError(extractError(err, "Failed to add test video."));
     } finally {
       setIsSubmitting(false);
     }
@@ -338,14 +313,45 @@ export default function CameraDetail() {
           </span>
         </div>
 
-        <LiveFeed
-          cameraId={camera.id}
-          cameraName={camera.name}
-          isOnline={status === "online"}
-          useCases={camera.use_cases}
-          sessionId={activeSessionId || undefined}
-          sessionFilename={activeSession?.original_filename}
-        />
+        {!activeSession && status !== "online" && sessions.length === 0 ? (
+          <div style={{ background: "var(--surface)", border: "1px dashed var(--border)", borderRadius: "8px", padding: "48px 24px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: "12px" }}>
+            <div style={{ width: "48px", height: "48px", borderRadius: "50%", background: "var(--surface-raised)", border: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "22px" }}>
+              🎬
+            </div>
+            <div style={{ fontSize: "16px", fontWeight: 700, color: "var(--text-primary)" }}>
+              No Video Uploaded
+            </div>
+            <p style={{ fontSize: "13px", color: "var(--text-muted)", margin: 0, maxWidth: "460px", lineHeight: 1.5 }}>
+              This camera is currently offline and no video session has been uploaded. Select a genuine recorded video file below to run safety analytics and PPE zone compliance verification.
+            </p>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              style={{
+                background: "var(--primary, #3b82f6)",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: "6px",
+                padding: "8px 20px",
+                fontSize: "13px",
+                fontWeight: 600,
+                cursor: "pointer",
+                marginTop: "4px",
+              }}
+            >
+              Choose Video File (.mp4, .mov, .avi)
+            </button>
+          </div>
+        ) : (
+          <LiveFeed
+            cameraId={camera.id}
+            cameraName={camera.name}
+            isOnline={status === "online"}
+            useCases={camera.use_cases}
+            sessionId={activeSessionId || undefined}
+            sessionFilename={activeSession?.original_filename}
+          />
+        )}
       </section>
 
       {/* Video Upload & Dynamic Analytics Sessions Panel (Phase B & C) */}
@@ -441,34 +447,6 @@ export default function CameraDetail() {
           >
             {isSubmitting && uploadProgress !== null ? `Uploading (${uploadProgress}%)...` : "Upload Video"}
           </button>
-
-          {/* Quick Add Server Test Videos */}
-          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>Quick Test Files:</span>
-            <select
-              defaultValue=""
-              onChange={(e) => {
-                if (e.target.value) {
-                  handleQuickAddTestVideo(e.target.value);
-                  e.target.value = "";
-                }
-              }}
-              disabled={isSubmitting}
-              style={{
-                fontSize: "12px",
-                padding: "5px 8px",
-                background: "var(--surface)",
-                color: "var(--text-primary)",
-                border: "1px solid var(--border)",
-                borderRadius: "4px",
-              }}
-            >
-              <option value="" disabled>Select pre-existing test video...</option>
-              {AVAILABLE_TEST_VIDEOS.map((v) => (
-                <option key={v.name} value={v.name}>{v.label}</option>
-              ))}
-            </select>
-          </div>
         </div>
 
         {uploadProgress !== null && (
@@ -579,23 +557,40 @@ export default function CameraDetail() {
                       </button>
 
                       {/* Start / Re-run Analytics Button */}
-                      <button
-                        type="button"
-                        onClick={() => handleStartSession(s.session_id)}
-                        disabled={isProcessing || isSubmitting}
-                        style={{
-                          padding: "6px 12px",
-                          fontSize: "12px",
-                          fontWeight: 600,
-                          borderRadius: "4px",
-                          border: "none",
-                          background: isProcessing ? "var(--border)" : "var(--success, #10b981)",
-                          color: "#ffffff",
-                          cursor: isProcessing || isSubmitting ? "not-allowed" : "pointer",
-                        }}
-                      >
-                        {isProcessing ? "Processing..." : isDone ? "↻ Re-Run Analytics" : "▶ Start Analytics"}
-                      </button>
+                      {(() => {
+                        const hasActiveAnalytics = effectiveList.some((e) => e.is_active);
+                        return (
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px" }}>
+                            <button
+                              type="button"
+                              onClick={() => handleStartSession(s.session_id)}
+                              disabled={isProcessing || isSubmitting || !hasActiveAnalytics}
+                              title={!hasActiveAnalytics ? "Cannot start analytics: no active analytics enabled for this camera/zone" : undefined}
+                              style={{
+                                padding: "6px 12px",
+                                fontSize: "12px",
+                                fontWeight: 600,
+                                borderRadius: "4px",
+                                border: "none",
+                                background: isProcessing
+                                  ? "var(--border)"
+                                  : !hasActiveAnalytics
+                                    ? "var(--surface-raised)"
+                                    : "var(--success, #10b981)",
+                                color: !hasActiveAnalytics ? "var(--text-muted)" : "#ffffff",
+                                cursor: isProcessing || isSubmitting || !hasActiveAnalytics ? "not-allowed" : "pointer",
+                              }}
+                            >
+                              {isProcessing ? "Processing..." : isDone ? "↻ Re-Run Analytics" : "▶ Start Analytics"}
+                            </button>
+                            {!hasActiveAnalytics && (
+                              <span style={{ fontSize: "10px", color: "var(--warning, #f59e0b)" }}>
+                                ⚠️ Analytics disabled in zone policy
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
 
                       {/* Stop Button */}
                       {isProcessing && (

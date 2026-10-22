@@ -33,6 +33,15 @@ async def write_audit_entry(
     metadata: dict | None = None,
     session = None
 ) -> None:
+    valid_user_id = None
+    audit_meta = dict(metadata or {})
+    if user_id:
+        try:
+            valid_user_id = str(uuid.UUID(str(user_id)))
+        except (ValueError, TypeError):
+            valid_user_id = None
+            audit_meta["raw_user_id"] = str(user_id)
+
     async def _write(session):
         await session.execute(
             text("""
@@ -49,9 +58,9 @@ async def write_audit_entry(
                 "action": action,
                 "entity_type": entity_type,
                 "entity_id": entity_id,
-                "user_id": user_id,
+                "user_id": valid_user_id,
                 "source_uc": source_uc,
-                "metadata": json.dumps(metadata or {}),
+                "metadata": json.dumps(audit_meta),
             },
         )
     if session is not None:

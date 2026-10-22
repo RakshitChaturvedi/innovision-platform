@@ -11,6 +11,13 @@ class OrganizationCreate(BaseModel):
     tier: str = "enterprise"
     is_active: bool = True
 
+class OrganizationUpdate(BaseModel):
+    name: Optional[str] = None
+    tier: Optional[str] = None
+
+class OrganizationStatusUpdate(BaseModel):
+    is_active: bool
+
 class OrganizationResponse(BaseModel):
     id: UUID
     name: str
@@ -26,6 +33,12 @@ class SiteCreate(BaseModel):
     code: str
     address: Optional[str] = None
     timezone: str = "UTC"
+
+class SiteUpdate(BaseModel):
+    name: Optional[str] = None
+    code: Optional[str] = None
+    address: Optional[str] = None
+    timezone: Optional[str] = None
 
 class SiteResponse(BaseModel):
     id: UUID
@@ -45,6 +58,13 @@ class ZoneCreate(BaseModel):
     zone_type: str = "general"
     risk_level: str = "medium"
     is_active: bool = True
+
+class ZoneUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    zone_type: Optional[str] = None
+    risk_level: Optional[str] = None
+    is_active: Optional[bool] = None
 
 class ZoneResponse(BaseModel):
     id: UUID
