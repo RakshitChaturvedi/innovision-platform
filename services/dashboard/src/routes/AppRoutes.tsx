@@ -20,6 +20,12 @@ import { SettingsPage } from "@/pages/SettingsPage";
 import { Cameras } from "@/pages/admin/Cameras";
 import { Users } from "@/pages/admin/Users";
 
+import { ConfiguratorPage as UC4ConfiguratorPage } from "@/modules/uc4/pages/ConfiguratorPage";
+import { TrackingPage as UC4TrackingPage } from "@/modules/uc4/pages/TrackingPage";
+import { AnalyticsPage as UC4TrafficAnalyticsPage } from "@/modules/uc4/pages/AnalyticsPage";
+import { PipelinePage as UC4PipelinePage } from "@/modules/uc4/pages/PipelinePage";
+import { UC4OverviewPage } from "@/modules/uc4/pages/UC4OverviewPage";
+
 import { ProtectedRoute } from "./ProtectedRoute";
 import { RoleRoute } from "./RoleRoute";
 
@@ -52,9 +58,16 @@ export function AppRoutes() {
               <Route path="/incidents" element={<Incidents />} />
             </Route>
 
-            {/* Safety Compliance Reporting: Operator and Org Admins */}
+            {/* UC4 Vehicle & Speed Overview */}
+            <Route path="/uc4" element={<UC4OverviewPage />} />
+            <Route path="/uc4/tracking" element={<UC4TrackingPage />} />
+            <Route path="/uc4/analytics" element={<UC4TrafficAnalyticsPage />} />
+
+            {/* Safety Compliance Reporting & Advanced Configurator: Operator and Admins */}
             <Route element={<RoleRoute allowedRoles={["admin", "org_admin", "operator"]} />}>
               <Route path="/reports" element={<Reports />} />
+              <Route path="/uc4/configurator" element={<UC4ConfiguratorPage />} />
+              <Route path="/uc4/pipeline" element={<UC4PipelinePage />} />
             </Route>
 
             {/* Organization Facility Fleet & Policies: Org Admin / Admin only */}

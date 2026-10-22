@@ -146,6 +146,17 @@ class FalseAlarmSuppressor:
             if motion_ratio < 0.001 and yolo_confidence < 0.35 and hsv_score < 0.4:
                 return FalseAlarmDecision(suppressed=True, reason="static_scene_low_confidence", category="static")
 
+            # Sparks are dynamic fast-moving particles; static ceiling lights or screens have near-zero motion
+            if det_type in ("sparks", "spark"):
+                spark_diff = cv2.absdiff(roi_gray, prev_gray)
+                spark_motion = float(np.count_nonzero(spark_diff > 12)) / max(spark_diff.size, 1)
+                if spark_motion < 0.008:
+                    return FalseAlarmDecision(
+                        suppressed=True,
+                        reason=f"stationary_spark_fixture (motion={spark_motion:.4f})",
+                        category="static_spark",
+                    )
+
         return FalseAlarmDecision(suppressed=False)
 
 

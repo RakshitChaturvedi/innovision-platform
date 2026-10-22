@@ -2,13 +2,15 @@ import React from "react";
 import { NavLink, Outlet, Link } from "react-router-dom";
 import { useAuth } from "@/store/useAuth";
 import type { UserRole } from "@/types/auth";
+import { hasMinimumRole } from "@/lib/rbac";
 import { NotificationCenter } from "./NotificationCenter";
 import { ThemeToggle } from "./ThemeToggle";
 
 interface NavigationItem {
   label: string;
   to: string;
-  allowedRoles: UserRole[];
+  allowedRoles?: UserRole[];
+  minimumRole?: UserRole;
   section: string;
   icon: React.ReactNode;
 }
@@ -132,6 +134,33 @@ const allNavigation: NavigationItem[] = [
     ),
   },
   {
+    label: "Speed Trap Configurator",
+    to: "/uc4/configurator",
+    minimumRole: "operator",
+    section: "Command & Live Ops",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <polygon points="12 2 2 7 12 12 22 7 12 2" />
+        <polyline points="2 17 12 22 22 17" />
+        <polyline points="2 12 12 17 22 12" />
+      </svg>
+    ),
+  },
+  {
+    label: "Traffic & ANPR Tracking",
+    to: "/uc4",
+    minimumRole: "viewer",
+    section: "Command & Live Ops",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="1" y="3" width="15" height="13" />
+        <polygon points="16 8 20 8 23 11 23 16 16 16 16 8" />
+        <circle cx="5.5" cy="18.5" r="2.5" />
+        <circle cx="18.5" cy="18.5" r="2.5" />
+      </svg>
+    ),
+  },
+  {
     label: "Sites & Zones",
     to: "/sites-zones",
     allowedRoles: ["admin", "org_admin"],
@@ -216,9 +245,15 @@ export function AppLayout() {
   const userRole = user?.role || "viewer";
 
   // Filter navigation strictly by current user's role
-  const visibleNavigation = allNavigation.filter((item) =>
-    item.allowedRoles.includes(userRole)
-  );
+  const visibleNavigation = allNavigation.filter((item) => {
+    if (item.allowedRoles && item.allowedRoles.length > 0) {
+      return item.allowedRoles.includes(userRole);
+    }
+    if (item.minimumRole) {
+      return hasMinimumRole(user, item.minimumRole);
+    }
+    return true;
+  });
 
   // Group into ordered distinct sections
   const sections = Array.from(new Set(visibleNavigation.map((item) => item.section)));
